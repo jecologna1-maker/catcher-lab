@@ -31,10 +31,11 @@ def filter_profile(profile, pitcher, hitter, location, family):
         profile = profile.loc[profile["p_throws"].eq(HANDS[pitcher])]
     if HANDS[hitter]:
         profile = profile.loc[profile["stand"].eq(HANDS[hitter])]
-    if location == "Arm side":
-        profile = profile.loc[profile["plate_x"].gt(0)]
-    elif location == "Glove side":
-        profile = profile.loc[profile["plate_x"].lt(0)]
+    if location in ("Arm side", "Glove side"):
+        middle = profile["zone_height"].between(1 / 3, 2 / 3, inclusive="neither")
+        horizontal = profile["plate_x"]
+        side = horizontal.gt(0) if location == "Arm side" else horizontal.lt(0)
+        profile = profile.loc[middle & side]
     elif location == "Top":
         profile = profile.loc[profile["zone_height"].ge(2 / 3)]
     elif location == "Bottom":
@@ -202,7 +203,7 @@ def show_catcher_profile(season):
     )
     if location != "All locations":
         st.caption(
-            "Side filters use the left or right half from the catcher’s view. "
+            "Arm and glove side cover the middle third of zone height, split left and right from the catcher’s view. "
             "Top and bottom use the outer thirds of zone height and include pitches beyond the zone."
         )
     if profile.empty:

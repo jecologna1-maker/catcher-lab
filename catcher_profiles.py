@@ -1,14 +1,11 @@
-from base64 import b64encode
-from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
-import altair as alt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
-from PIL import Image
 
 
 @st.cache_data
@@ -46,17 +43,10 @@ def game_video_links(game_id):
     return {key: url for key, url in links.items() if key not in ambiguous}
 
 
-def zone_outline():
-    zone = pd.DataFrame({"left": [-17 / 24], "right": [17 / 24], "bottom": [0], "top": [1]})
-    return alt.Chart(zone).mark_rect(
-        fillOpacity=0, stroke="#68778b", strokeWidth=1.5, strokeDash=[4, 3]
-    ).encode(x="left:Q", x2="right:Q", y="bottom:Q", y2="top:Q")
-
-
 def heat_map(pitches, overlay=None):
     # Smooth counts and strike totals separately before calculating rates.
     x_edges = np.linspace(-2.5, 2.5, 101)
-    z_edges = np.linspace(-1.6, 2.6, 85)
+    z_edges = np.linspace(-1.6, 3.25, 98)
     x = (x_edges[:-1] + x_edges[1:]) / 2
     z = (z_edges[:-1] + z_edges[1:]) / 2
     smooth_x = np.exp(-0.5 * ((x[:, None] - x) / 0.17) ** 2)
@@ -73,73 +63,46 @@ def heat_map(pitches, overlay=None):
     denominator = np.where(support > 0, support, 1)
     actual = density(pitches["called"].astype(float)) / denominator
     expected = density(pitches["expected"]) / denominator
-    i, j = np.where(support >= 2)
-    surface = pd.DataFrame({
-        "left": x_edges[i], "right": x_edges[i + 1],
-        "bottom": z_edges[j], "top": z_edges[j + 1],
-        "actual": actual[i, j], "expected": expected[i, j],
-        "difference": actual[i, j] - expected[i, j],
-        "support": support[i, j],
-    })
-    # Render the smooth surface as one image to avoid seams between samples.
-    palette = np.array([
-        [103, 0, 31], [214, 96, 77], [247, 247, 247], [67, 147, 195], [5, 48, 97]
-    ])
-    ranges = np.linspace(-0.25, 0.25, len(palette))
-    difference = actual - expected
-    rgb = [np.interp(difference, ranges, channel) for channel in palette.T]
-    alpha = 255 * np.clip((support - 2) / 12, 0, 1)
-    pixels = np.stack([*rgb, alpha], axis=-1).transpose(1, 0, 2)[::-1].astype("uint8")
-    image = Image.fromarray(pixels).resize((600, 504), Image.Resampling.BILINEAR)
-    data = BytesIO()
-    image.save(data, format="PNG")
-    backdrop = pd.DataFrame({
-        "x": [0], "z": [0.5],
-        "image": ["data:image/png;base64," + b64encode(data.getvalue()).decode("ascii")],
-    })
-    x_axis = dict(title="Horizontal location (ft)", scale=alt.Scale(domain=[-2.5, 2.5], nice=False))
-    z_axis = dict(title="Batter strike-zone height", scale=alt.Scale(domain=[-1.6, 2.6], nice=False))
-    raster = alt.Chart(backdrop).mark_image(
-        width=alt.ExprRef(expr="width"), height=alt.ExprRef(expr="height"), aspect=False
-    ).encode(x=alt.X("x:Q", **x_axis), y=alt.Y("z:Q", **z_axis), url="image:N")
-    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect(
-        clip=True, opacity=0.001
-    ).encode(
-        x=alt.X("left:Q", **x_axis),
-        x2="right:Q",
-        y=alt.Y("bottom:Q", **z_axis),
-        y2="top:Q",
-        color=alt.Color(
-            "difference:Q", title="Actual minus expected",
-            scale=alt.Scale(domain=[-0.25, 0.25], scheme="redblue", clamp=True),
-            legend=alt.Legend(format="+.0%"),
+    difference = np.where(support >= 3, actual - expected, np.nan)
+    figure = go.Figure(go.Heatmap(
+        x=x, y=z, z=difference.T, zsmooth="best", hoverongaps=False,
+        customdata=np.stack([actual.T, expected.T, support.T], axis=-1),
+        colorscale="RdBu", zmin=-0.25, zmax=0.25,
+        colorbar={"title": "Actual − expected", "tickformat": "+.0%"},
+        hovertemplate=(
+            "Smoothed called strike rate %{customdata[0]:.1%}<br>"
+            "Smoothed expected rate %{customdata[1]:.1%}<br>"
+            "Actual minus expected %{z:+.1%}<br>"
+            "Weighted nearby takes %{customdata[2]:.1f}<extra></extra>"
         ),
-        tooltip=[
-            alt.Tooltip("actual:Q", title="Smoothed called strike rate", format=".1%"),
-            alt.Tooltip("expected:Q", title="Smoothed expected rate", format=".1%"),
-            alt.Tooltip("difference:Q", title="Actual minus expected", format="+.1%"),
-            alt.Tooltip("support:Q", title="Weighted nearby takes", format=".1f"),
-        ],
-    )
-    layers = raster + chart + zone_outline()
+    ))
     if overlay is not None:
-        dots = alt.Chart(overlay).mark_circle(
-            size=95, opacity=0.93, stroke="white", strokeWidth=1, cursor="pointer", clip=True
-        ).encode(
-            x=alt.X("plate_x:Q", **x_axis),
-            y=alt.Y("zone_height:Q", **z_axis),
-            color=alt.Color(
-                "Initial call:N",
-                scale=alt.Scale(domain=["Ball", "Called strike"], range=["#bb4b37", "#17629c"]),
-            ),
-            href="Video:N",
-            tooltip=[
-                "Pitch:N", "Inning:Q", "Count:N", "Plate appearance:Q", "Pitch number:Q",
-                "Initial call:N", alt.Tooltip("Called-strike probability:Q", format=".1%"),
-            ],
-        )
-        layers = (layers + dots).resolve_scale(color="independent")
-    return layers.properties(height=460)
+        for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):
+            dots = overlay.loc[overlay["Initial call"].eq(call)]
+            figure.add_scattergl(
+                x=dots["plate_x"], y=dots["zone_height"], mode="markers", name=call,
+                customdata=dots["pitch_id"].tolist(),
+                marker={"size": 6, "color": color, "opacity": 0.72, "line": {"color": "white", "width": 0.5}},
+                text=[
+                    f"{date} · {pitch} · {call}<br>Count {count} · Probability {probability:.1%}"
+                    for date, pitch, count, probability in dots[[
+                        "Date", "Pitch", "Count", "Called-strike probability",
+                    ]].itertuples(index=False, name=None)
+                ],
+                hovertemplate="%{text}<extra></extra>",
+            )
+    figure.add_shape(
+        type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
+        line={"color": "#68778b", "width": 1.5, "dash": "dash"},
+    )
+    figure.update_layout(
+        height=485, clickmode="event+select", hovermode="closest",
+        margin={"l": 40, "r": 10, "t": 24, "b": 45},
+        legend={"orientation": "h", "y": 1.04},
+        xaxis={"title": "Horizontal location (ft)", "range": [x_edges[0], x_edges[-1]]},
+        yaxis={"title": "Batter strike-zone height", "range": [z_edges[0], z_edges[-1]]},
+    )
+    return figure
 
 
 def show_catcher_profile(season):
@@ -169,50 +132,74 @@ def show_catcher_profile(season):
         "Height 0 is the bottom of the batter’s zone and 1 is the top."
     )
     if not st.toggle("Overlay individual pitches", key="show_pitch_overlay"):
-        st.altair_chart(heat_map(profile), use_container_width=True)
+        st.plotly_chart(heat_map(profile), use_container_width=True)
         return
 
-    games = (
-        profile.drop_duplicates("game_pk").sort_values(["game_date", "game_pk"], ascending=False)
-        .set_index("game_pk")
-    )
-    labels = {
-        game_id: f"{r.game_date} · {r.away_team} at {r.home_team} · {game_id}"
-        for game_id, r in games.iterrows()
-    }
-    game_id = st.selectbox("Game", games.index.tolist(), format_func=labels.get, key=f"game_{catcher}")
-    game_pitches = profile.loc[profile["game_pk"].eq(game_id)].copy()
-    try:
-        links = game_video_links(game_id)
-    except (requests.RequestException, ValueError, KeyError, AttributeError):
-        links = {}
-        st.info("Savant video links are temporarily unavailable for this game.")
+    overlay = profile.loc[profile["expected"].between(0.05, 0.95, inclusive="neither")].copy()
+    if overlay.empty:
+        st.caption("No eligible pitches have a called-strike probability between 5% and 95%.")
+        st.plotly_chart(heat_map(profile), use_container_width=True)
+        return
 
-    game_pitches["Video"] = [
-        links.get((row.at_bat_number, row.pitch_number, catcher, row.batter))
-        for row in game_pitches.itertuples(index=False)
-    ]
-    game_pitches["Initial call"] = game_pitches["called"].map({True: "Called strike", False: "Ball"})
-    game_pitches["Count"] = game_pitches["balls"].astype(str) + "–" + game_pitches["strikes"].astype(str)
-    game_pitches = game_pitches.rename(columns={
+    overlay = overlay.reset_index(drop=True)
+    overlay["pitch_id"] = overlay.index
+    overlay["Initial call"] = overlay["called"].map({True: "Called strike", False: "Ball"})
+    overlay["Count"] = overlay["balls"].astype(str) + "–" + overlay["strikes"].astype(str)
+    overlay = overlay.rename(columns={
         "pitch_name": "Pitch", "inning": "Inning", "at_bat_number": "Plate appearance",
         "pitch_number": "Pitch number", "expected": "Called-strike probability",
+        "game_date": "Date",
     })
-    st.caption("Click a pitch dot or its Watch link to open the clip on Baseball Savant.")
-    st.altair_chart(heat_map(profile, game_pitches), use_container_width=True)
-    if (~game_pitches["plate_x"].between(-2.5, 2.5) | ~game_pitches["zone_height"].between(-1.6, 2.6)).any():
-        st.caption("The pitch table also includes locations outside the chart.")
-    if game_pitches["Video"].isna().any():
-        st.caption("Pitches without a Watch link could not be matched to a Savant clip.")
+    st.caption(
+        f"{len(overlay):,} pitches from the full season with estimated probabilities "
+        "above 5% and below 95%. Select a dot or a table row to find its Savant clip."
+    )
+    chart_key = f"pitch_chart_{catcher}"
+    table_key = f"pitch_table_{catcher}"
+    pitch_key = f"selected_pitch_{catcher}"
+
+    def select_dot():
+        points = st.session_state[chart_key]["selection"]["points"]
+        pitch_ids = [point["customdata"] for point in points if "customdata" in point]
+        st.session_state[pitch_key] = pitch_ids[-1] if pitch_ids else None
+
+    def select_row():
+        rows = st.session_state[table_key]["selection"]["rows"]
+        st.session_state[pitch_key] = rows[0] if rows else None
+
+    chart_columns = [
+        "pitch_id", "plate_x", "zone_height", "Date", "Inning", "Plate appearance",
+        "Pitch number", "Count", "Pitch", "Initial call", "Called-strike probability",
+    ]
+    st.plotly_chart(
+        heat_map(profile, overlay[chart_columns]), use_container_width=True,
+        key=chart_key, on_select=select_dot, selection_mode="points",
+    )
+    details = st.container()
     st.dataframe(
-        game_pitches[[
-            "Inning", "Plate appearance", "Pitch number", "Count", "Pitch", "Initial call",
-            "Called-strike probability", "Video",
-        ]],
-        width="stretch",
-        hide_index=True,
+        overlay[chart_columns[3:]], width="stretch", hide_index=True,
+        key=table_key, on_select=select_row, selection_mode="single-row",
         column_config={
-            "Video": st.column_config.LinkColumn("Savant video", display_text="Watch"),
             "Called-strike probability": st.column_config.NumberColumn(format="percent"),
         },
     )
+    selected = st.session_state.get(pitch_key)
+    if selected is not None and selected in overlay.index:
+        pitch = overlay.loc[selected]
+        with details:
+            st.caption(
+                f"{pitch['Date']} · {pitch['away_team']} at {pitch['home_team']} · "
+                f"Inning {pitch['Inning']} · Pitch {pitch['Pitch number']} · "
+                f"{pitch['Pitch']} · {pitch['Initial call']} · "
+                f"{pitch['Called-strike probability']:.1%} estimated called-strike probability"
+            )
+            try:
+                links = game_video_links(int(pitch["game_pk"]))
+                url = links.get((pitch["Plate appearance"], pitch["Pitch number"], catcher, pitch["batter"]))
+            except (requests.RequestException, ValueError, KeyError, AttributeError):
+                st.info("Savant video links are temporarily unavailable for this pitch.")
+            else:
+                if url:
+                    st.link_button("Watch on Baseball Savant", url)
+                else:
+                    st.info("Savant has no matching video link for this pitch.")

@@ -1,12 +1,11 @@
 from pathlib import Path
-from uuid import UUID
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageOps
+from streamlit.components.v1 import html
 
 
 @st.cache_data
@@ -17,41 +16,8 @@ def load_profile_data(data_version):
     return catchers, pitches
 
 
-@st.cache_data(ttl=21600, max_entries=128)
-def game_video_links(game_id):
-    response = requests.get(
-        "https://baseballsavant.mlb.com/gf", params={"game_pk": game_id}, timeout=15
-    )
-    response.raise_for_status()
-    game = response.json()
-    links = {}
-    ambiguous = set()
-    for side in ("home_pitchers", "away_pitchers"):
-        for pitcher_pitches in game[side].values():
-            for pitch in pitcher_pitches:
-                try:
-                    key = tuple(
-                        int(pitch[field])
-                        for field in ("ab_number", "pitch_number", "catcher", "batter")
-                    )
-                    play_id = UUID(pitch["play_id"])
-                except (KeyError, ValueError, TypeError, AttributeError):
-                    continue
-                url = f"https://baseballsavant.mlb.com/sporty-videos?playId={play_id}"
-                if key in links and links[key] != url:
-                    ambiguous.add(key)
-                links[key] = url
-    return {key: url for key, url in links.items() if key not in ambiguous}
-
-
 HANDS = {"All": None, "Right-handed": "R", "Left-handed": "L"}
-ZONES = {
-    "All locations": (),
-    "Arm side (Zone 16)": (16,),
-    "Glove side (Zone 14)": (14,),
-    "Top (Zones 11–13)": (11, 12, 13),
-    "Bottom (Zones 17–19)": (17, 18, 19),
-}
+LOCATIONS = ["All locations", "Arm side", "Glove side", "Top", "Bottom"]
 PITCH_FAMILIES = {
     "All pitch types": (),
     "Fastballs": ("FF", "FT", "SI", "FC"),
@@ -65,37 +31,24 @@ def filter_profile(profile, pitcher, hitter, location, family):
         profile = profile.loc[profile["p_throws"].eq(HANDS[pitcher])]
     if HANDS[hitter]:
         profile = profile.loc[profile["stand"].eq(HANDS[hitter])]
-    if ZONES[location]:
-        profile = profile.loc[profile["framing_zone"].isin(ZONES[location])]
+    if location == "Arm side":
+        profile = profile.loc[profile["plate_x"].gt(0)]
+    elif location == "Glove side":
+        profile = profile.loc[profile["plate_x"].lt(0)]
+    elif location == "Top":
+        profile = profile.loc[profile["zone_height"].ge(2 / 3)]
+    elif location == "Bottom":
+        profile = profile.loc[profile["zone_height"].le(1 / 3)]
     if PITCH_FAMILIES[family]:
         profile = profile.loc[profile["pitch_type"].isin(PITCH_FAMILIES[family])]
     return profile
 
 
+@st.cache_data
 def hitter_silhouette():
-    image = Image.new("RGBA", (140, 330))
-    draw = ImageDraw.Draw(image)
-    fill = "#91a1b8"
-    draw.line([(77, 113), (15, 22)], fill=fill, width=8)
-    draw.ellipse((74, 34, 116, 81), fill=fill)
-    draw.polygon([(101, 53), (126, 61), (108, 66)], fill=fill)
-    draw.polygon([(87, 72), (104, 81), (103, 106), (81, 103)], fill=fill)
-    draw.polygon([
-        (74, 85), (95, 91), (108, 114), (104, 148), (95, 183),
-        (103, 204), (86, 222), (48, 216), (49, 159), (59, 108),
-    ], fill=fill)
-    draw.line([(92, 106), (113, 139), (80, 149), (61, 95)], fill=fill, width=17, joint="curve")
-    draw.line([(72, 101), (46, 133), (58, 99)], fill=fill, width=13, joint="curve")
-    draw.ellipse((50, 84, 70, 105), fill=fill)
-    draw.polygon([
-        (49, 203), (76, 207), (64, 255), (50, 314), (38, 321),
-        (15, 320), (31, 309), (34, 291), (34, 255),
-    ], fill=fill)
-    draw.polygon([
-        (67, 212), (99, 200), (124, 247), (109, 305), (131, 313),
-        (133, 321), (98, 322), (89, 315), (91, 258),
-    ], fill=fill)
-    return image
+    with Image.open(Path(__file__).with_name("hitter-silhouette.png")) as source:
+        image = source.convert("RGBA")
+    return image.crop(image.getbbox())
 
 
 def heat_map(pitches, overlay=None, hitter=None):
@@ -160,18 +113,20 @@ def heat_map(pitches, overlay=None, hitter=None):
     )
     silhouette = hitter_silhouette()
     # Catcher's perspective: a right-handed hitter stands on the viewer's left.
-    for side, left, image in (("R", -2.48, silhouette), ("L", 1.35, ImageOps.mirror(silhouette))):
+    for side, left, image in (("R", -2.48, silhouette), ("L", 0.88, ImageOps.mirror(silhouette))):
         if hitter is None or hitter == side:
             figure.add_layout_image(
-                source=image, xref="x", yref="y", x=left, y=1.65,
-                sizex=1.13, sizey=2.4, sizing="stretch", layer="below", opacity=0.8,
+                source=image, xref="x", yref="y", x=left, y=1.37,
+                sizex=1.60, sizey=2.18, sizing="stretch", layer="below", opacity=0.95,
             )
     if overlay is not None:
         for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):
             dots = overlay.loc[overlay["Initial call"].eq(call)]
             figure.add_scattergl(
                 x=dots["plate_x"], y=dots["zone_height"], mode="markers", name=call,
-                customdata=dots["pitch_id"].tolist(),
+                customdata=dots[[
+                    "game_pk", "Plate appearance", "Pitch number", "fielder_2", "batter",
+                ]].to_numpy(dtype=int).tolist(),
                 marker={"size": 6, "color": color, "opacity": 0.72, "line": {"color": "white", "width": 0.5}},
                 text=[
                     f"{date} · {pitch} · {call}<br>Count {count} · Probability {probability:.1%}"
@@ -186,6 +141,10 @@ def heat_map(pitches, overlay=None, hitter=None):
             type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
             line={"color": color, "width": width},
         )
+    figure.add_shape(
+        type="path", path="M -0.69,-0.77 L 0.69,-0.77 L 0.69,-0.89 L 0,-1.05 L -0.69,-0.89 Z",
+        line={"color": "#64748b", "width": 1.5}, fillcolor="#e2e8f0",
+    )
     visible_y = [-1.15, 2.05]
     if overlay is not None and not overlay.empty:
         visible_y = [
@@ -193,7 +152,7 @@ def heat_map(pitches, overlay=None, hitter=None):
             max(visible_y[1], overlay["zone_height"].max() + 0.08),
         ]
     figure.update_layout(
-        height=615, clickmode="event+select", hovermode="closest",
+        height=615, clickmode="event", hovermode="closest",
         margin={"l": 40, "r": 10, "t": 24, "b": 45},
         legend={"orientation": "h", "y": 1.04},
         xaxis={"title": "Horizontal location (ft)", "range": [x_edges[0], x_edges[-1]]},
@@ -218,27 +177,34 @@ def show_catcher_profile(season):
     profile = pitches.loc[pitches["fielder_2"].eq(catcher)]
     st.header(player["player"])
     st.caption("2026 regular season · Catcher profile")
-    columns = st.columns(4)
-    columns[0].metric("SL+", f"{player['SL+']:.2f}")
-    columns[1].metric("Called strikes", f"{player['called_strikes']:,}")
-    columns[2].metric("Expected strikes", f"{player['expected_strikes']:,.1f}")
-    columns[3].metric("Eligible takes", f"{player['eligible_takes']:,}")
+    metrics = st.container()
 
     st.subheader("Called strikes by location")
     hand_filters = st.columns(2)
     pitcher = hand_filters[0].selectbox("Pitcher handedness", HANDS, key="profile_pitcher")
     hitter = hand_filters[1].selectbox("Hitter handedness", HANDS, key="profile_hitter")
     pitch_filters = st.columns(2)
-    location = pitch_filters[0].selectbox("Pitch location", ZONES)
+    location = pitch_filters[0].selectbox("Pitch location", LOCATIONS)
     family = pitch_filters[1].selectbox("Pitch family", PITCH_FAMILIES)
     profile = filter_profile(profile, pitcher, hitter, location, family)
+    actual = int(profile["called"].sum())
+    expected = profile["expected"].astype("float64").sum()
+    with metrics:
+        columns = st.columns(4)
+        columns[0].metric("SL+", f"{100 * actual / expected:.2f}" if expected > 0 else "—")
+        columns[1].metric("Called strikes", f"{actual:,}")
+        columns[2].metric("Expected strikes", f"{expected:,.1f}")
+        columns[3].metric("Eligible takes", f"{len(profile):,}")
     st.caption(
         "Warm colors show more called strikes than expected. Blue shows fewer. "
         "The surface averages nearby takes that match your filters. "
         "Height 0 is the bottom of the batter’s zone and 1 is the top."
     )
     if location != "All locations":
-        st.caption("Framing zones use estimated edge bands and fixed sides from the catcher’s view.")
+        st.caption(
+            "Side filters use the left or right half from the catcher’s view. "
+            "Top and bottom use the outer thirds of zone height and include pitches beyond the zone."
+        )
     if profile.empty:
         st.info("No eligible takes match these filters.")
         st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
@@ -258,8 +224,6 @@ def show_catcher_profile(season):
         st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
         return
 
-    overlay = overlay.reset_index(drop=True)
-    overlay["pitch_id"] = overlay.index
     overlay["Initial call"] = overlay["called"].map({True: "Called strike", False: "Ball"})
     overlay["Count"] = overlay["balls"].astype(str) + "–" + overlay["strikes"].astype(str)
     overlay = overlay.rename(columns={
@@ -269,55 +233,18 @@ def show_catcher_profile(season):
     })
     st.caption(
         f"{len(overlay):,} matching pitches with estimated probabilities "
-        "above 5% and below 95%. Select a dot or a table row to find its Savant clip."
+        "above 5% and below 95%. Click a pitch to open its Savant clip in a new tab."
     )
-    selection_key = f"{catcher}_{pitcher}_{hitter}_{location}_{family}_{outcome}"
-    chart_key = f"pitch_chart_{selection_key}"
-    table_key = f"pitch_table_{selection_key}"
-    pitch_key = f"selected_pitch_{selection_key}"
-
-    def select_dot():
-        points = st.session_state[chart_key]["selection"]["points"]
-        pitch_ids = [point["customdata"] for point in points if "customdata" in point]
-        st.session_state[pitch_key] = pitch_ids[-1] if pitch_ids else None
-
-    def select_row():
-        rows = st.session_state[table_key]["selection"]["rows"]
-        st.session_state[pitch_key] = rows[0] if rows else None
-
-    chart_columns = [
-        "pitch_id", "plate_x", "zone_height", "Date", "Inning", "Plate appearance",
-        "Pitch number", "Count", "Pitch", "Initial call", "Called-strike probability",
-    ]
-    st.container(width=690).plotly_chart(
-        heat_map(profile, overlay[chart_columns], hitter=HANDS[hitter]), use_container_width=True,
-        key=chart_key, on_select=select_dot, selection_mode="points",
+    figure = heat_map(profile, overlay, hitter=HANDS[hitter])
+    theme = st.context.theme.type
+    figure.update_layout(
+        template="plotly_white" if theme == "light" else "plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     )
-    details = st.container()
-    st.dataframe(
-        overlay[chart_columns[3:]], width="stretch", hide_index=True,
-        key=table_key, on_select=select_row, selection_mode="single-row",
-        column_config={
-            "Called-strike probability": st.column_config.NumberColumn(format="percent"),
-        },
+    script = Path(__file__).with_name("pitch_video.js").read_text(encoding="utf-8")
+    contents = figure.to_html(
+        full_html=False, include_plotlyjs="cdn", post_script=script,
+        config={"responsive": True, "displaylogo": False},
     )
-    selected = st.session_state.get(pitch_key)
-    if selected is not None and selected in overlay.index:
-        pitch = overlay.loc[selected]
-        with details:
-            st.caption(
-                f"{pitch['Date']} · {pitch['away_team']} at {pitch['home_team']} · "
-                f"Inning {pitch['Inning']} · Pitch {pitch['Pitch number']} · "
-                f"{pitch['Pitch']} · {pitch['Initial call']} · "
-                f"{pitch['Called-strike probability']:.1%} estimated called-strike probability"
-            )
-            try:
-                links = game_video_links(int(pitch["game_pk"]))
-                url = links.get((pitch["Plate appearance"], pitch["Pitch number"], catcher, pitch["batter"]))
-            except (requests.RequestException, ValueError, KeyError, AttributeError):
-                st.info("Savant video links are temporarily unavailable for this pitch.")
-            else:
-                if url:
-                    st.link_button("Watch on Baseball Savant", url)
-                else:
-                    st.info("Savant has no matching video link for this pitch.")
+    with st.container(width=690):
+        html('<style>body{margin:0} .scatterlayer{cursor:pointer}</style>' + contents, height=625)

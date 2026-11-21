@@ -14,8 +14,14 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("CATCHER LAB")
-st.caption("MLB Catching Analytics")
+st.html(Path(__file__).with_name("catcher_lab.css"))
+st.html(
+    '<header class="catcher-brand" aria-label="Catcher Lab">'
+    '<span class="catcher-brand__mark" aria-hidden="true">JC</span>'
+    '<span class="catcher-brand__name">COLOGNA CATCHING DEVELOPMENT</span>'
+    '<span class="catcher-brand__product">Catcher Lab · MLB analytics</span>'
+    '</header>'
+)
 
 DATASETS = {
     "Receiving": "catcher-framing",

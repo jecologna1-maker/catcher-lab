@@ -153,6 +153,8 @@ def heat_map(pitches, overlay=None, hitter=None):
             max(visible_y[1], overlay["zone_height"].max() + 0.08),
         ]
     figure.update_layout(
+        template="plotly_white", paper_bgcolor="#ffffff", plot_bgcolor="#ffffff",
+        font={"color": "#342044"},
         height=615, clickmode="event", hovermode="closest",
         margin={"l": 40, "r": 10, "t": 24, "b": 45},
         legend={"orientation": "h", "y": 1.04},
@@ -214,11 +216,12 @@ def show_catcher_profile(season):
     st.header(player["player"])
     st.caption("2026 regular season · Catcher profile")
     show_receiving_profile(profile)
-    show_stance_usage(catcher)
+    with st.container(border=True, key="stance_panel"):
+        show_stance_usage(catcher)
 
 
 def show_receiving_profile(profile):
-    metrics = st.container()
+    metrics = st.container(key="receiving_summary")
 
     st.subheader("Called strikes by location")
     hand_filters = st.columns(2)
@@ -248,10 +251,10 @@ def show_receiving_profile(profile):
         )
     if profile.empty:
         st.info("No eligible takes match these filters.")
-        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True, theme=None)
         return
     if not st.toggle("Overlay individual pitches", key="show_pitch_overlay"):
-        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True, theme=None)
         return
 
     overlay = profile.loc[profile["expected"].between(0.05, 0.95, inclusive="neither")].copy()
@@ -262,7 +265,7 @@ def show_receiving_profile(profile):
         overlay = overlay.loc[overlay["called"].eq(outcome == "Called strikes only")]
     if overlay.empty:
         st.caption("No pitches match this outcome at probabilities above 5% and below 95%.")
-        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True, theme=None)
         return
 
     overlay["Initial call"] = overlay["called"].map({True: "Called strike", False: "Ball"})
@@ -277,11 +280,6 @@ def show_receiving_profile(profile):
         "above 5% and below 95%. Click a pitch to open its Savant clip in a new tab."
     )
     figure = heat_map(profile, overlay, hitter=HANDS[hitter])
-    theme = st.context.theme.type
-    figure.update_layout(
-        template="plotly_white" if theme == "light" else "plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    )
     script = Path(__file__).with_name("pitch_video.js").read_text(encoding="utf-8")
     contents = figure.to_html(
         full_html=False, include_plotlyjs="cdn", post_script=script,

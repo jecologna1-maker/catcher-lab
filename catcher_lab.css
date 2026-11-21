@@ -1,0 +1,89 @@
+.stMainBlockContainer {
+    max-width: 1500px;
+}
+
+.catcher-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: #342044;
+    color: white;
+    padding: 0.8rem 1rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 12px #34204418;
+}
+.catcher-brand__mark {
+    display: grid;
+    flex: 0 0 2.25rem;
+    height: 2.25rem;
+    place-items: center;
+    border-radius: 0.55rem;
+    background: #d8b64c;
+    color: #342044;
+    font-size: 0.85rem;
+    font-weight: 850;
+}
+.catcher-brand__name {
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+}
+.catcher-brand__product {
+    margin-left: auto;
+    color: #f0e9f3;
+    font-size: 0.82rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3,
+[data-testid="stSidebar"] h2 {
+    color: #342044;
+    letter-spacing: -0.025em;
+}
+[data-testid="stSidebar"] {
+    border-right: 1px solid #e6e0ea;
+}
+[data-testid="stMetric"] {
+    min-height: 5.65rem;
+    padding: 0.75rem 0.9rem;
+    background: #fff;
+    border: 1px solid #e6e0ea;
+    border-radius: 0.75rem;
+    box-shadow: 0 3px 10px #34204409;
+}
+[data-testid="stMetricValue"] {
+    color: #342044;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+}
+.st-key-receiving_summary [data-testid="stColumn"]:first-child [data-testid="stMetric"] {
+    background: #342044;
+    border-color: #342044;
+}
+.st-key-receiving_summary [data-testid="stColumn"]:first-child [data-testid="stMetric"] p,
+.st-key-receiving_summary [data-testid="stColumn"]:first-child [data-testid="stMetricValue"] {
+    color: #fff;
+}
+[data-testid="stDataFrame"] {
+    border-radius: 0.75rem;
+    box-shadow: 0 3px 10px #34204409;
+}
+.st-key-stance_panel [data-testid="stMetric"] {
+    box-shadow: none;
+}
+[data-testid="stDownloadButton"] button {
+    border-color: #715a83;
+    color: #342044;
+    font-weight: 650;
+}
+[data-testid="stDownloadButton"] button:hover {
+    background: #eee8f1;
+}
+
+@media (max-width: 550px) {
+    .catcher-brand { flex-wrap: wrap; gap: 0.55rem; }
+    .catcher-brand__name { font-size: 0.68rem; }
+    .catcher-brand__product { margin-left: 0; }
+}

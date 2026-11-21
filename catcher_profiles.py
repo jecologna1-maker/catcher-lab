@@ -32,14 +32,14 @@ def filter_profile(profile, pitcher, hitter, location, family):
     if HANDS[hitter]:
         profile = profile.loc[profile["stand"].eq(HANDS[hitter])]
     if location in ("Arm side", "Glove side"):
-        middle = profile["zone_height"].between(1 / 3, 2 / 3, inclusive="neither")
+        middle = profile["zone_height"].between(0.25, 0.75, inclusive="neither")
         horizontal = profile["plate_x"]
         side = horizontal.gt(0) if location == "Arm side" else horizontal.lt(0)
         profile = profile.loc[middle & side]
     elif location == "Top":
-        profile = profile.loc[profile["zone_height"].ge(2 / 3)]
+        profile = profile.loc[profile["zone_height"].ge(0.75)]
     elif location == "Bottom":
-        profile = profile.loc[profile["zone_height"].le(1 / 3)]
+        profile = profile.loc[profile["zone_height"].le(0.25)]
     if PITCH_FAMILIES[family]:
         profile = profile.loc[profile["pitch_type"].isin(PITCH_FAMILIES[family])]
     return profile
@@ -203,8 +203,8 @@ def show_catcher_profile(season):
     )
     if location != "All locations":
         st.caption(
-            "Arm and glove side cover the middle third of zone height, split left and right from the catcher’s view. "
-            "Top and bottom use the outer thirds of zone height and include pitches beyond the zone."
+            "Arm and glove side cover the middle half of zone height, split left and right from the catcher’s view. "
+            "Top and bottom use the outer quarters of zone height and include pitches beyond the zone."
         )
     if profile.empty:
         st.info("No eligible takes match these filters.")

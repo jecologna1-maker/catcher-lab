@@ -136,8 +136,13 @@ def show_catcher_profile(season):
         return
 
     overlay = profile.loc[profile["expected"].between(0.05, 0.95, inclusive="neither")].copy()
+    outcome = st.radio(
+        "Pitch outcome", ["All pitches", "Balls only", "Called strikes only"], horizontal=True
+    )
+    if outcome != "All pitches":
+        overlay = overlay.loc[overlay["called"].eq(outcome == "Called strikes only")]
     if overlay.empty:
-        st.caption("No eligible pitches have a called-strike probability between 5% and 95%.")
+        st.caption("No pitches match this outcome at probabilities above 5% and below 95%.")
         st.plotly_chart(heat_map(profile), use_container_width=True)
         return
 
@@ -154,9 +159,9 @@ def show_catcher_profile(season):
         f"{len(overlay):,} pitches from the full season with estimated probabilities "
         "above 5% and below 95%. Select a dot or a table row to find its Savant clip."
     )
-    chart_key = f"pitch_chart_{catcher}"
-    table_key = f"pitch_table_{catcher}"
-    pitch_key = f"selected_pitch_{catcher}"
+    chart_key = f"pitch_chart_{catcher}_{outcome}"
+    table_key = f"pitch_table_{catcher}_{outcome}"
+    pitch_key = f"selected_pitch_{catcher}_{outcome}"
 
     def select_dot():
         points = st.session_state[chart_key]["selection"]["points"]

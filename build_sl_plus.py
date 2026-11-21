@@ -21,6 +21,7 @@ FIELDS = KEY + [
     "game_type", "fielder_2", "description", "plate_x", "plate_z", "sz_bot",
     "sz_top", "stand", "p_throws", "balls", "strikes", "game_date",
     "home_team", "away_team", "batter", "pitch_name", "pitch_type", "inning",
+    "on_1b", "on_2b", "on_3b",
 ]
 CALLS = ("called_strike", "ball", "blocked_ball")
 
@@ -148,6 +149,7 @@ def main():
         "pitch_name", "pitch_type", "p_throws", "stand", "balls", "strikes",
         "plate_x", "called", "expected",
     ]].copy()
+    profiles["runners_on"] = takes[["on_1b", "on_2b", "on_3b"]].notna().any(axis=1)
     profiles["zone_height"] = (
         (takes["plate_z"] - takes["sz_bot"]) / (takes["sz_top"] - takes["sz_bot"])
     ).astype("float32")

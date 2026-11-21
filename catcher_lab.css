@@ -88,22 +88,72 @@
     .catcher-brand__product { margin-left: 0; }
 }
 
+.st-key-sl_filter_panel [data-testid="stVerticalBlock"],
+[class*="st-key-sl_rank_"] [data-testid="stVerticalBlock"] {
+    gap: 0.45rem;
+}
 .st-key-sl_filter_panel [data-testid="stButtonGroup"] button,
+.st-key-sl_ranking button,
 [class*="st-key-sl_rank_"] button,
 [class*="st-key-sl_rank_"] [data-testid="stLinkButton"] a {
-    min-height: 2.75rem;
+    min-height: 2.25rem;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.875rem;
 }
-[class*="st-key-sl_rank_"] [data-testid="stMetric"] {
+.sl-ranked-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+}
+.sl-ranked-player {
+    min-width: 0;
+}
+.sl-ranked-player h3 {
+    margin: 0;
+    padding: 0;
+    font-size: 1.08rem;
+    line-height: 1.25;
+}
+.sl-ranked-player span {
+    color: #665b6d;
+    font-size: 0.78rem;
+}
+.sl-rank-score {
+    display: grid;
+    justify-items: center;
+    min-width: 4.45rem;
+    padding: 0.28rem 0.5rem;
+    border-radius: 0.5rem;
     background: #342044;
-    border-color: #342044;
+    color: white;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
 }
-[class*="st-key-sl_rank_"] [data-testid="stMetric"] p,
-[class*="st-key-sl_rank_"] [data-testid="stMetricValue"] {
-    color: #fff;
+.sl-rank-score span { font-size: 0.67rem; }
+.sl-rank-score strong { font-size: 1.08rem; }
+[class*="st-key-sl_rank_"] [data-testid="stExpander"] summary {
+    min-height: 2.25rem;
+    padding-block: 0.25rem;
 }
 @media (max-width: 550px) {
-    .st-key-sl_filter_panel [data-testid="stButtonGroup"] button {
-        padding-inline: 0.5rem;
-        font-size: 0.85rem;
+    .st-key-sl_filter_panel [data-testid="stButtonGroup"] button,
+    .st-key-sl_ranking button,
+    [class*="st-key-sl_rank_"] button,
+    [class*="st-key-sl_rank_"] [data-testid="stLinkButton"] a,
+    [class*="st-key-sl_rank_"] [data-testid="stExpander"] summary {
+        min-height: 2.75rem;
     }
+}
+
+.st-key-sl_ranking [role="radiogroup"] label {
+    padding: 0.25rem 0.65rem;
+    min-height: 2.25rem;
+    border: 1px solid #e6e0ea;
+    border-radius: 0.5rem;
+    background: white;
+}
+.st-key-sl_ranking [role="radiogroup"] label:has(input:checked) {
+    background: #eee8f1;
+    border-color: #715a83;
 }

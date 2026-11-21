@@ -20,7 +20,7 @@ KEY = ["game_pk", "at_bat_number", "pitch_number"]
 FIELDS = KEY + [
     "game_type", "fielder_2", "description", "plate_x", "plate_z", "sz_bot",
     "sz_top", "stand", "p_throws", "balls", "strikes", "game_date",
-    "home_team", "away_team", "batter", "pitch_name", "inning",
+    "home_team", "away_team", "batter", "pitch_name", "pitch_type", "inning",
 ]
 CALLS = ("called_strike", "ball", "blocked_ball")
 
@@ -145,11 +145,33 @@ def main():
     result.to_csv(Path(__file__).with_name("sl_plus_2026.csv"), float_format="%.6f")
     profiles = takes[KEY + [
         "game_date", "fielder_2", "batter", "home_team", "away_team", "inning",
-        "pitch_name", "balls", "strikes", "plate_x", "called", "expected",
+        "pitch_name", "pitch_type", "p_throws", "stand", "balls", "strikes",
+        "plate_x", "called", "expected",
     ]].copy()
     profiles["zone_height"] = (
         (takes["plate_z"] - takes["sz_bot"]) / (takes["sz_top"] - takes["sz_bot"])
     ).astype("float32")
+    # The Search CSV uses another zone numbering scheme. Estimate the eight
+    # framing shadow zones using a one-ball-width band at the plate and zone edges.
+    half_plate = 17 / 24
+    ball_width = 2.9 / 12
+    horizontal = np.select(
+        [takes["plate_x"] < -half_plate + ball_width,
+         takes["plate_x"] > half_plate - ball_width],
+        [-1, 1], default=0,
+    )
+    vertical = np.select(
+        [takes["plate_z"] > takes["sz_top"] - ball_width,
+         takes["plate_z"] < takes["sz_bot"] + ball_width],
+        [0, 2], default=1,
+    )
+    in_band_bounds = (
+        takes["plate_x"].abs().le(half_plate + ball_width)
+        & takes["plate_z"].ge(takes["sz_bot"] - ball_width)
+        & takes["plate_z"].le(takes["sz_top"] + ball_width)
+    )
+    zones = 11 + 3 * vertical + horizontal + 1
+    profiles["framing_zone"] = np.where(in_band_bounds & (zones != 15), zones, 0).astype("int8")
     for field in ("fielder_2", "batter"):
         profiles[field] = profiles[field].fillna(0).astype("int32")
     profiles["expected"] = profiles["expected"].astype("float32")

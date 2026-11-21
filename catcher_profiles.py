@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 
 
 @st.cache_data
@@ -44,7 +44,61 @@ def game_video_links(game_id):
     return {key: url for key, url in links.items() if key not in ambiguous}
 
 
-def heat_map(pitches, overlay=None):
+HANDS = {"All": None, "Right-handed": "R", "Left-handed": "L"}
+ZONES = {
+    "All locations": (),
+    "Arm side (Zone 16)": (16,),
+    "Glove side (Zone 14)": (14,),
+    "Top (Zones 11–13)": (11, 12, 13),
+    "Bottom (Zones 17–19)": (17, 18, 19),
+}
+PITCH_FAMILIES = {
+    "All pitch types": (),
+    "Fastballs": ("FF", "FT", "SI", "FC"),
+    "Breaking balls": ("SL", "ST", "SV", "CU", "KC", "CS"),
+    "Offspeed": ("CH", "FS", "FO", "KN"),
+}
+
+
+def filter_profile(profile, pitcher, hitter, location, family):
+    if HANDS[pitcher]:
+        profile = profile.loc[profile["p_throws"].eq(HANDS[pitcher])]
+    if HANDS[hitter]:
+        profile = profile.loc[profile["stand"].eq(HANDS[hitter])]
+    if ZONES[location]:
+        profile = profile.loc[profile["framing_zone"].isin(ZONES[location])]
+    if PITCH_FAMILIES[family]:
+        profile = profile.loc[profile["pitch_type"].isin(PITCH_FAMILIES[family])]
+    return profile
+
+
+def hitter_silhouette():
+    image = Image.new("RGBA", (140, 330))
+    draw = ImageDraw.Draw(image)
+    fill = "#91a1b8"
+    draw.line([(77, 113), (15, 22)], fill=fill, width=8)
+    draw.ellipse((74, 34, 116, 81), fill=fill)
+    draw.polygon([(101, 53), (126, 61), (108, 66)], fill=fill)
+    draw.polygon([(87, 72), (104, 81), (103, 106), (81, 103)], fill=fill)
+    draw.polygon([
+        (74, 85), (95, 91), (108, 114), (104, 148), (95, 183),
+        (103, 204), (86, 222), (48, 216), (49, 159), (59, 108),
+    ], fill=fill)
+    draw.line([(92, 106), (113, 139), (80, 149), (61, 95)], fill=fill, width=17, joint="curve")
+    draw.line([(72, 101), (46, 133), (58, 99)], fill=fill, width=13, joint="curve")
+    draw.ellipse((50, 84, 70, 105), fill=fill)
+    draw.polygon([
+        (49, 203), (76, 207), (64, 255), (50, 314), (38, 321),
+        (15, 320), (31, 309), (34, 291), (34, 255),
+    ], fill=fill)
+    draw.polygon([
+        (67, 212), (99, 200), (124, 247), (109, 305), (131, 313),
+        (133, 321), (98, 322), (89, 315), (91, 258),
+    ], fill=fill)
+    return image
+
+
+def heat_map(pitches, overlay=None, hitter=None):
     # Smooth counts and strike totals separately before calculating rates.
     x_edges = np.linspace(-2.5, 2.5, 101)
     z_edges = np.linspace(-2.25, 3.25, 111)
@@ -104,6 +158,14 @@ def heat_map(pitches, overlay=None):
         sizex=x_edges[-1] - x_edges[0], sizey=z_edges[-1] - z_edges[0],
         sizing="stretch", layer="below",
     )
+    silhouette = hitter_silhouette()
+    # Catcher's perspective: a right-handed hitter stands on the viewer's left.
+    for side, left, image in (("R", -2.48, silhouette), ("L", 1.35, ImageOps.mirror(silhouette))):
+        if hitter is None or hitter == side:
+            figure.add_layout_image(
+                source=image, xref="x", yref="y", x=left, y=1.65,
+                sizex=1.13, sizey=2.4, sizing="stretch", layer="below", opacity=0.8,
+            )
     if overlay is not None:
         for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):
             dots = overlay.loc[overlay["Initial call"].eq(call)]
@@ -124,12 +186,18 @@ def heat_map(pitches, overlay=None):
             type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
             line={"color": color, "width": width},
         )
+    visible_y = [-1.15, 2.05]
+    if overlay is not None and not overlay.empty:
+        visible_y = [
+            min(visible_y[0], overlay["zone_height"].min() - 0.08),
+            max(visible_y[1], overlay["zone_height"].max() + 0.08),
+        ]
     figure.update_layout(
-        height=485, clickmode="event+select", hovermode="closest",
+        height=615, clickmode="event+select", hovermode="closest",
         margin={"l": 40, "r": 10, "t": 24, "b": 45},
         legend={"orientation": "h", "y": 1.04},
         xaxis={"title": "Horizontal location (ft)", "range": [x_edges[0], x_edges[-1]]},
-        yaxis={"title": "Batter strike-zone height", "range": [z_edges[0], z_edges[-1]]},
+        yaxis={"title": "Batter strike-zone height", "range": visible_y},
     )
     return figure
 
@@ -155,13 +223,26 @@ def show_catcher_profile(season):
     columns[3].metric("Eligible takes", f"{player['eligible_takes']:,}")
 
     st.subheader("Called strikes by location")
+    hand_filters = st.columns(2)
+    pitcher = hand_filters[0].selectbox("Pitcher handedness", HANDS, key="profile_pitcher")
+    hitter = hand_filters[1].selectbox("Hitter handedness", HANDS, key="profile_hitter")
+    pitch_filters = st.columns(2)
+    location = pitch_filters[0].selectbox("Pitch location", ZONES)
+    family = pitch_filters[1].selectbox("Pitch family", PITCH_FAMILIES)
+    profile = filter_profile(profile, pitcher, hitter, location, family)
     st.caption(
         "Warm colors show more called strikes than expected. Blue shows fewer. "
-        "The surface averages nearby pitches and uses the full season. "
+        "The surface averages nearby takes that match your filters. "
         "Height 0 is the bottom of the batter’s zone and 1 is the top."
     )
+    if location != "All locations":
+        st.caption("Framing zones use estimated edge bands and fixed sides from the catcher’s view.")
+    if profile.empty:
+        st.info("No eligible takes match these filters.")
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
+        return
     if not st.toggle("Overlay individual pitches", key="show_pitch_overlay"):
-        st.plotly_chart(heat_map(profile), use_container_width=True)
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
         return
 
     overlay = profile.loc[profile["expected"].between(0.05, 0.95, inclusive="neither")].copy()
@@ -172,7 +253,7 @@ def show_catcher_profile(season):
         overlay = overlay.loc[overlay["called"].eq(outcome == "Called strikes only")]
     if overlay.empty:
         st.caption("No pitches match this outcome at probabilities above 5% and below 95%.")
-        st.plotly_chart(heat_map(profile), use_container_width=True)
+        st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True)
         return
 
     overlay = overlay.reset_index(drop=True)
@@ -185,12 +266,13 @@ def show_catcher_profile(season):
         "game_date": "Date",
     })
     st.caption(
-        f"{len(overlay):,} pitches from the full season with estimated probabilities "
+        f"{len(overlay):,} matching pitches with estimated probabilities "
         "above 5% and below 95%. Select a dot or a table row to find its Savant clip."
     )
-    chart_key = f"pitch_chart_{catcher}_{outcome}"
-    table_key = f"pitch_table_{catcher}_{outcome}"
-    pitch_key = f"selected_pitch_{catcher}_{outcome}"
+    selection_key = f"{catcher}_{pitcher}_{hitter}_{location}_{family}_{outcome}"
+    chart_key = f"pitch_chart_{selection_key}"
+    table_key = f"pitch_table_{selection_key}"
+    pitch_key = f"selected_pitch_{selection_key}"
 
     def select_dot():
         points = st.session_state[chart_key]["selection"]["points"]
@@ -205,8 +287,8 @@ def show_catcher_profile(season):
         "pitch_id", "plate_x", "zone_height", "Date", "Inning", "Plate appearance",
         "Pitch number", "Count", "Pitch", "Initial call", "Called-strike probability",
     ]
-    st.plotly_chart(
-        heat_map(profile, overlay[chart_columns]), use_container_width=True,
+    st.container(width=690).plotly_chart(
+        heat_map(profile, overlay[chart_columns], hitter=HANDS[hitter]), use_container_width=True,
         key=chart_key, on_select=select_dot, selection_mode="points",
     )
     details = st.container()

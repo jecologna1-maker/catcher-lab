@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from datetime import date
 from io import StringIO
+from pathlib import Path
 
 st.set_page_config(
     page_title="Catcher Lab",
@@ -81,6 +82,11 @@ def show_leaderboard(season):
     category = st.sidebar.radio("Category", list(DATASETS))
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
+    if category == "Receiving" and season == 2026:
+        metric = st.sidebar.radio("Receiving metric", ["Savant framing", "SL+"])
+        if metric == "SL+":
+            show_sl_plus(search)
+            return
 
     with st.spinner("Loading Statcast data..."):
         df = load_data(category, season)
@@ -115,6 +121,40 @@ def show_leaderboard(season):
         ]
 
     show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}")
+
+
+def show_sl_plus(search):
+    st.subheader("Catcher SL+")
+    st.caption(
+        "2026 regular season. 100 × actual called strikes ÷ expected called strikes. "
+        "100 means the catcher received as many called strikes as expected."
+    )
+    with st.expander("How SL+ is calculated"):
+        st.write(
+            "Catcher Lab estimates called-strike probabilities from tracked takes "
+            "using pitch location, batter zone height, count, and batter and pitcher "
+            "handedness. Games are scored using a model fitted on other games, "
+            "without catcher identity. The scoring uses the initial umpire call "
+            "before any ABS overturn."
+        )
+    minimum = st.sidebar.number_input(
+        "Minimum eligible takes", min_value=0, value=200, step=50
+    )
+    df = pd.read_csv(Path(__file__).with_name("sl_plus_2026.csv"))
+    df = df.loc[df["eligible_takes"].ge(minimum)]
+    if search:
+        df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
+    df = df.sort_values("SL+", ascending=False).rename(
+        columns={
+            "player": "Catcher",
+            "catcher_id": "MLB player ID",
+            "called_strikes": "Called strikes",
+            "expected_strikes": "Expected strikes",
+            "eligible_takes": "Eligible takes",
+        }
+    )
+    df = df.round({"SL+": 2, "Expected strikes": 2})
+    show_results(df, ["Catcher"], "catcher_sl_plus_2026.csv", "sl_plus_columns")
 
 
 PITCH_COLUMNS = {

@@ -71,17 +71,18 @@ def heat_map(pitches, overlay=None):
     actual = density(pitches["called"].astype(float)) / denominator
     expected = density(pitches["expected"]) / denominator
     i, j = np.where(support >= 2)
+    # Slight overlap prevents hairline seams between adjacent rendered samples.
     surface = pd.DataFrame({
-        "left": x_edges[i], "right": x_edges[i + 1],
-        "bottom": z_edges[j], "top": z_edges[j + 1],
+        "left": x_edges[i], "right": x_edges[i + 1] + 0.012,
+        "bottom": z_edges[j], "top": z_edges[j + 1] + 0.012,
         "actual": actual[i, j], "expected": expected[i, j],
         "difference": actual[i, j] - expected[i, j],
         "support": support[i, j],
     })
     # Streamlit renders the dense surface as part of the same Vega chart as the links.
-    x_axis = dict(title="Horizontal location (ft)", scale=alt.Scale(domain=[-2.5, 2.5]))
-    z_axis = dict(title="Batter strike-zone height", scale=alt.Scale(domain=[-1.6, 2.6]))
-    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect().encode(
+    x_axis = dict(title="Horizontal location (ft)", scale=alt.Scale(domain=[-2.5, 2.5], nice=False))
+    z_axis = dict(title="Batter strike-zone height", scale=alt.Scale(domain=[-1.6, 2.6], nice=False))
+    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect(clip=True).encode(
         x=alt.X("left:Q", **x_axis),
         x2="right:Q",
         y=alt.Y("bottom:Q", **z_axis),

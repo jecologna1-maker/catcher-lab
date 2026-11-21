@@ -176,17 +176,24 @@ def show_stance_usage(catcher):
         st.caption("Baseball Savant has no stance data for this catcher.")
         return
     row = stance.loc[catcher]
-    labels = ["Both knees up", "Left knee down", "Right knee down", "Both knees down"]
-    values = row[["both_up_pct", "l_down_r_up_pct", "r_down_l_up_pct", "both_down_pct"]]
+    total = int(row["pitches"])
     st.caption(
-        f"{int(row['pitches']):,} tracked pitches in the 2026 regular season. "
-        "Stance usage is measured at pitch release."
+        f"{total:,} pitches in Savant’s 2026 regular-season stance breakdown. "
+        "Stance is measured at pitch release."
     )
-    for column, label, value in zip(st.columns(4), labels, values):
-        column.metric(label, f"{value:.1%}")
+    traditional, left, right = st.columns(3)
+    with traditional:
+        st.markdown("**Traditional**")
+        st.metric("Both knees up", f"{row['traditional'] / total:.1%}")
+    for column, side in ((left, "Left"), (right, "Right")):
+        with column:
+            st.markdown(f"**{side} knee down**")
+            st.metric("No leg extended", f"{row[f'{side.lower()}_no_extension'] / total:.1%}")
+            st.metric("Leg extended", f"{row[f'{side.lower()}_extended'] / total:.1%}")
+    st.caption("Both knees down are counted under Right knee down · Leg extended.")
     st.caption(
         "Source: [Baseball Savant Catcher Stance](https://baseballsavant.mlb.com/"
-        "leaderboard/catcher-stance?type=catcher&seasonStart=2026&seasonEnd=2026)."
+        "leaderboard/catcher-stance?type=catcher&seasonStart=2026&seasonEnd=2026&groupBy=knee_code)."
     )
 
 

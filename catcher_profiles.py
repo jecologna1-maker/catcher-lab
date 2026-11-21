@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from PIL import Image
 
 
 @st.cache_data
@@ -63,15 +64,27 @@ def heat_map(pitches, overlay=None):
     denominator = np.where(support > 0, support, 1)
     actual = density(pitches["called"].astype(float)) / denominator
     expected = density(pitches["expected"]) / denominator
-    difference = np.where(support >= 3, actual - expected, np.nan)
+    palette = [
+        (0.00, "#243ba3"), (0.20, "#2b83cb"), (0.38, "#71d7d3"),
+        (0.50, "#dcf0c4"), (0.62, "#f6d55e"), (0.80, "#ef8a40"),
+        (1.00, "#b83431"),
+    ]
+    difference = actual - expected
+    color_index = (difference + 0.15) / 0.30
+    stops = [stop for stop, _ in palette]
+    colors = np.array([
+        [int(color[channel:channel + 2], 16) for channel in (1, 3, 5)]
+        for _, color in palette
+    ])
+    rgb = [np.interp(color_index, stops, channel) for channel in colors.T]
+    alpha = 255 * np.clip((support - 3) / 18, 0, 1)
+    pixels = np.stack([*rgb, alpha], axis=-1).transpose(1, 0, 2)[::-1].astype("uint8")
+    surface = Image.fromarray(pixels).resize((600, 660), Image.Resampling.BILINEAR)
     figure = go.Figure(go.Heatmap(
-        x=x, y=z, z=difference.T, zsmooth="best", hoverongaps=False,
+        x=x, y=z, z=np.where(support >= 3, difference, np.nan).T,
+        opacity=0.001, hoverongaps=False,
         customdata=np.stack([actual.T, expected.T, support.T], axis=-1),
-        colorscale=[
-            (0.00, "#243ba3"), (0.20, "#2b83cb"), (0.38, "#71d7d3"),
-            (0.50, "#dcf0c4"), (0.62, "#f6d55e"), (0.80, "#ef8a40"),
-            (1.00, "#b83431"),
-        ],
+        colorscale=palette,
         zmin=-0.15, zmax=0.15,
         colorbar={
             "title": "Called strikes<br>vs. expected",
@@ -86,6 +99,11 @@ def heat_map(pitches, overlay=None):
             "Weighted nearby takes %{customdata[2]:.1f}<extra></extra>"
         ),
     ))
+    figure.add_layout_image(
+        source=surface, xref="x", yref="y", x=x_edges[0], y=z_edges[-1],
+        sizex=x_edges[-1] - x_edges[0], sizey=z_edges[-1] - z_edges[0],
+        sizing="stretch", layer="below",
+    )
     if overlay is not None:
         for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):
             dots = overlay.loc[overlay["Initial call"].eq(call)]

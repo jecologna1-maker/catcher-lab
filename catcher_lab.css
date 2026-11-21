@@ -157,3 +157,44 @@
     background: #eee8f1;
     border-color: #715a83;
 }
+
+.sl-player-photo {
+    flex: 0 0 46px;
+    width: 46px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 1px solid #e6e0ea;
+    background: #eee8f1;
+}
+.sl-ranked-player {
+    flex: 1 1 auto;
+}
+.sl-score-pair {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: stretch;
+    gap: 0.3rem;
+    flex: 0 0 auto;
+}
+.sl-rank-score, .sl-rank-overall {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    padding: 0.3rem 0.48rem;
+    border-radius: 0.5rem;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+.sl-rank-overall {
+    background: #eee8f1;
+    color: #342044;
+}
+.sl-rank-overall span { font-size: 0.67rem; }
+.sl-rank-overall strong { font-size: 1.03rem; }
+@media (max-width: 480px) {
+    .sl-ranked-row { gap: 0.4rem; }
+    .sl-player-photo { flex-basis: 38px; width: 38px; height: 38px; }
+    .sl-score-pair { grid-template-columns: auto; }
+    .sl-rank-overall { padding-block: 0.2rem; }
+}

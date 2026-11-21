@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from uuid import UUID
 
 import pandas as pd
@@ -91,16 +93,69 @@ def compile_clips(pitches):
     return clips
 
 
-def show_clip_reel(clips):
+class SavantVideoSource(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_player = False
+        self.url = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "video":
+            self.in_player = attrs.get("id") == "sporty"
+        if self.in_player and tag == "source" and attrs.get("type") == "video/mp4":
+            url = attrs.get("src") or ""
+            parsed = urlparse(url)
+            if (
+                parsed.scheme == "https"
+                and parsed.netloc == "sporty-clips.mlb.com"
+                and parsed.path.endswith(".mp4")
+            ):
+                self.url = url
+
+    def handle_endtag(self, tag):
+        if tag == "video":
+            self.in_player = False
+
+
+def savant_clip_url(play_id):
+    return f"https://baseballsavant.mlb.com/sporty-videos?playId={play_id}"
+
+
+@st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
+def load_video_source(play_id):
+    reply = requests.get(savant_clip_url(play_id), timeout=10)
+    reply.raise_for_status()
+    parser = SavantVideoSource()
+    parser.feed(reply.text)
+    return parser.url
+
+
+def show_clip_reel(clips, catcher):
     if len(clips) < CLIP_COUNT:
         st.caption(f"Found {len(clips)} matching Savant clips.")
+    if not clips:
+        return
+
+    labels = {}
     for number, (pitch, play_id) in enumerate(clips, 1):
         call = "Called Strike" if pitch.called else "Ball"
-        label = f"{number}. {call} · {pitch.pitch_name or 'Pitch'} · {pitch.expected:.1%}"
-        st.link_button(
-            label, f"https://baseballsavant.mlb.com/sporty-videos?playId={play_id}", width="stretch",
-            help=f"{pitch.game_date} · {pitch.away_team} at {pitch.home_team}",
-        )
+        labels[play_id] = f"{number}. {call} · {pitch.pitch_name or 'Pitch'} · {pitch.expected:.1%}"
+    selected = st.selectbox(
+        "Choose a Clip", list(labels), format_func=labels.get, index=None,
+        key=f"sl_clip_{catcher}", placeholder="Choose a Clip",
+    )
+    if selected is None:
+        return
+    try:
+        source = load_video_source(selected)
+    except (requests.RequestException, ValueError):
+        source = None
+    if source:
+        st.video(source, format="video/mp4")
+    else:
+        st.caption("This clip is available on Baseball Savant.")
+    st.link_button("Open on Baseball Savant", savant_clip_url(selected), width="stretch")
 
 
 def show_sl_plus_leaderboard(season):
@@ -132,26 +187,36 @@ def show_sl_plus_leaderboard(season):
         return
 
     st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by SL+")
-    names = catchers.set_index("catcher_id")["player"]
+    season_stats = catchers.set_index("catcher_id")
     filters_key = (tuple(families), tuple(locations), tuple(pitchers), tuple(hitters), tuple(base_states))
     for position, (catcher, row) in enumerate(ranked.iterrows(), 1):
         with st.container(border=True, key=f"sl_rank_{catcher}"):
-            name = escape(names.at[catcher])
+            name = escape(season_stats.at[catcher, "player"])
+            overall = season_stats.at[catcher, "SL+"]
+            photo = (
+                "https://img.mlbstatic.com/mlb-photos/image/upload/"
+                f"w_160,q_auto:best/v1/people/{int(catcher)}/headshot/67/current"
+            )
             st.html(
-                f'<div class="sl-ranked-row"><div class="sl-ranked-player">'
+                f'<div class="sl-ranked-row">'
+                f'<img class="sl-player-photo" src="{photo}" alt="" width="46" height="46" loading="lazy">'
+                f'<div class="sl-ranked-player">'
                 f'<h3>{position}. {name}</h3>'
                 f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
                 f' · {row["expected"]:,.1f} Expected</span></div>'
-                f'<div class="sl-rank-score"><span>SL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
+                f'<div class="sl-score-pair">'
+                f'<div class="sl-rank-score"><span>Filtered SL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
+                f'<div class="sl-rank-overall"><span>Overall SL+</span><strong>{overall:.2f}</strong></div>'
+                f'</div>'
                 f'</div>'
             )
             reel_key = f"sl_reel_{catcher}"
             with st.expander("Savant Clips"):
                 cached = st.session_state.get(reel_key)
                 if cached and cached[0] == filters_key:
-                    show_clip_reel(cached[1])
+                    show_clip_reel(cached[1], catcher)
                 elif st.button("Load 10 Clips", key=f"sl_load_{catcher}", width="stretch"):
                     with st.spinner("Finding the matching pitches on Baseball Savant…"):
                         clips = compile_clips(matches.loc[matches["fielder_2"].eq(catcher)])
                     st.session_state[reel_key] = (filters_key, clips)
-                    show_clip_reel(clips)
+                    show_clip_reel(clips, catcher)

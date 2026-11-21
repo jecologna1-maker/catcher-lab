@@ -48,7 +48,7 @@ st.sidebar.header("Filters")
 season = st.sidebar.selectbox(
     "Season",
     list(range(2026, 2017, -1)),
-    index=1
+    index=0
 )
 
 category = st.sidebar.radio(

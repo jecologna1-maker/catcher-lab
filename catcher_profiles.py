@@ -46,7 +46,7 @@ def game_video_links(game_id):
 def heat_map(pitches, overlay=None):
     # Smooth counts and strike totals separately before calculating rates.
     x_edges = np.linspace(-2.5, 2.5, 101)
-    z_edges = np.linspace(-1.6, 3.25, 98)
+    z_edges = np.linspace(-2.25, 3.25, 111)
     x = (x_edges[:-1] + x_edges[1:]) / 2
     z = (z_edges[:-1] + z_edges[1:]) / 2
     smooth_x = np.exp(-0.5 * ((x[:, None] - x) / 0.17) ** 2)
@@ -67,8 +67,18 @@ def heat_map(pitches, overlay=None):
     figure = go.Figure(go.Heatmap(
         x=x, y=z, z=difference.T, zsmooth="best", hoverongaps=False,
         customdata=np.stack([actual.T, expected.T, support.T], axis=-1),
-        colorscale="RdBu", zmin=-0.25, zmax=0.25,
-        colorbar={"title": "Actual − expected", "tickformat": "+.0%"},
+        colorscale=[
+            (0.00, "#243ba3"), (0.20, "#2b83cb"), (0.38, "#71d7d3"),
+            (0.50, "#dcf0c4"), (0.62, "#f6d55e"), (0.80, "#ef8a40"),
+            (1.00, "#b83431"),
+        ],
+        zmin=-0.15, zmax=0.15,
+        colorbar={
+            "title": "Called strikes<br>vs. expected",
+            "tickvals": [-0.15, -0.075, 0, 0.075, 0.15],
+            "ticktext": ["−15 pp", "−7.5 pp", "0", "+7.5 pp", "+15 pp"],
+            "len": 0.76, "thickness": 14,
+        },
         hovertemplate=(
             "Smoothed called strike rate %{customdata[0]:.1%}<br>"
             "Smoothed expected rate %{customdata[1]:.1%}<br>"
@@ -91,10 +101,11 @@ def heat_map(pitches, overlay=None):
                 ],
                 hovertemplate="%{text}<extra></extra>",
             )
-    figure.add_shape(
-        type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
-        line={"color": "#68778b", "width": 1.5, "dash": "dash"},
-    )
+    for width, color in ((4, "#102540"), (1.4, "#ffffff")):
+        figure.add_shape(
+            type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
+            line={"color": color, "width": width},
+        )
     figure.update_layout(
         height=485, clickmode="event+select", hovermode="closest",
         margin={"l": 40, "r": 10, "t": 24, "b": 45},
@@ -127,7 +138,7 @@ def show_catcher_profile(season):
 
     st.subheader("Called strikes by location")
     st.caption(
-        "Blue shows more called strikes than expected. Red shows fewer. "
+        "Warm colors show more called strikes than expected. Blue shows fewer. "
         "The surface averages nearby pitches and uses the full season. "
         "Height 0 is the bottom of the batter’s zone and 1 is the top."
     )

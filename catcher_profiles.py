@@ -31,18 +31,28 @@ def filter_profile(profile, pitcher, hitter, location, family):
         profile = profile.loc[profile["p_throws"].eq(HANDS[pitcher])]
     if HANDS[hitter]:
         profile = profile.loc[profile["stand"].eq(HANDS[hitter])]
-    if location in ("Arm side", "Glove side"):
-        middle = profile["zone_height"].between(0.25, 0.75, inclusive="neither")
-        horizontal = profile["plate_x"]
-        side = horizontal.gt(0) if location == "Arm side" else horizontal.lt(0)
-        profile = profile.loc[middle & side]
-    elif location == "Top":
-        profile = profile.loc[profile["zone_height"].ge(0.75)]
-    elif location == "Bottom":
-        profile = profile.loc[profile["zone_height"].le(0.25)]
+    if location != "All locations":
+        profile = profile.loc[pitch_location_mask(profile, location)]
     if PITCH_FAMILIES[family]:
         profile = profile.loc[profile["pitch_type"].isin(PITCH_FAMILIES[family])]
     return profile
+
+
+def pitch_location_mask(pitches, location):
+    height = pitches["zone_height"]
+    if location == "Top":
+        return height.ge(0.75)
+    if location == "Bottom":
+        return height.le(0.25)
+    middle = height.between(0.25, 0.75, inclusive="neither")
+    horizontal = pitches["plate_x"]
+    return middle & (horizontal.gt(0) if location == "Arm side" else horizontal.lt(0))
+
+
+def profile_data():
+    data_file = Path(__file__).with_name("catcher_pitches_2026.parquet")
+    stat = data_file.stat()
+    return load_profile_data((stat.st_mtime_ns, stat.st_size))
 
 
 @st.cache_data
@@ -204,9 +214,7 @@ def show_catcher_profile(season):
         st.info("Catcher profiles are available for the 2026 regular season.")
         return
 
-    data_file = Path(__file__).with_name("catcher_pitches_2026.parquet")
-    data_version = (data_file.stat().st_mtime_ns, data_file.stat().st_size)
-    catchers, pitches = load_profile_data(data_version)
+    catchers, pitches = profile_data()
     roster = catchers.set_index("catcher_id")
     catcher = st.sidebar.selectbox(
         "Catcher", roster.index.tolist(), format_func=lambda player: roster.at[player, "player"]

@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from catcher_profiles import show_catcher_profile
+from sl_plus_leaderboard import show_sl_plus_leaderboard
 
 st.set_page_config(
     page_title="Catcher Lab",
@@ -241,15 +242,19 @@ def show_pitch_search(season):
 
 st.sidebar.header("Filters")
 season = st.sidebar.selectbox("Season", list(range(2026, 2017, -1)), index=0)
-view = st.sidebar.radio("View", ["Leaderboards", "Pitch Search", "Catcher Profiles"])
+views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "SL+ Leaderboard"]
+default_view = "SL+ Leaderboard" if st.query_params.get("view") == "sl-plus" else "Leaderboards"
+view = st.sidebar.radio("View", views, index=views.index(default_view))
 
 try:
     if view == "Leaderboards":
         show_leaderboard(season)
     elif view == "Pitch Search":
         show_pitch_search(season)
-    else:
+    elif view == "Catcher Profiles":
         show_catcher_profile(season)
+    else:
+        show_sl_plus_leaderboard(season)
 except pd.errors.EmptyDataError:
     st.info("Baseball Savant returned no data for this selection.")
 except (requests.RequestException, ValueError, KeyError):

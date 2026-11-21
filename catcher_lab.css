@@ -87,3 +87,23 @@
     .catcher-brand__name { font-size: 0.68rem; }
     .catcher-brand__product { margin-left: 0; }
 }
+
+.st-key-sl_filter_panel [data-testid="stButtonGroup"] button,
+[class*="st-key-sl_rank_"] button,
+[class*="st-key-sl_rank_"] [data-testid="stLinkButton"] a {
+    min-height: 2.75rem;
+}
+[class*="st-key-sl_rank_"] [data-testid="stMetric"] {
+    background: #342044;
+    border-color: #342044;
+}
+[class*="st-key-sl_rank_"] [data-testid="stMetric"] p,
+[class*="st-key-sl_rank_"] [data-testid="stMetricValue"] {
+    color: #fff;
+}
+@media (max-width: 550px) {
+    .st-key-sl_filter_panel [data-testid="stButtonGroup"] button {
+        padding-inline: 0.5rem;
+        font-size: 0.85rem;
+    }
+}

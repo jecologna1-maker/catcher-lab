@@ -117,7 +117,7 @@ def heat_map(pitches, overlay=None, hitter=None):
         if hitter is None or hitter == side:
             figure.add_layout_image(
                 source=image, xref="x", yref="y", x=left, y=1.37,
-                sizex=1.60, sizey=2.18, sizing="stretch", layer="below", opacity=0.95,
+                sizex=1.60, sizey=2.18, sizing="stretch", layer="below", opacity=0.60,
             )
     if overlay is not None:
         for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):

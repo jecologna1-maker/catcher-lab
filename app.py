@@ -6,6 +6,8 @@ from datetime import date
 from io import StringIO
 from pathlib import Path
 
+from catcher_profiles import show_catcher_profile
+
 st.set_page_config(
     page_title="Catcher Lab",
     page_icon="⚾",
@@ -233,13 +235,15 @@ def show_pitch_search(season):
 
 st.sidebar.header("Filters")
 season = st.sidebar.selectbox("Season", list(range(2026, 2017, -1)), index=0)
-view = st.sidebar.radio("View", ["Leaderboards", "Pitch Search"])
+view = st.sidebar.radio("View", ["Leaderboards", "Pitch Search", "Catcher Profiles"])
 
 try:
     if view == "Leaderboards":
         show_leaderboard(season)
-    else:
+    elif view == "Pitch Search":
         show_pitch_search(season)
+    else:
+        show_catcher_profile(season)
 except pd.errors.EmptyDataError:
     st.info("Baseball Savant returned no data for this selection.")
 except (requests.RequestException, ValueError, KeyError):

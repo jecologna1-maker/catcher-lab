@@ -19,7 +19,8 @@ import requests
 KEY = ["game_pk", "at_bat_number", "pitch_number"]
 FIELDS = KEY + [
     "game_type", "fielder_2", "description", "plate_x", "plate_z", "sz_bot",
-    "sz_top", "stand", "p_throws", "balls", "strikes",
+    "sz_top", "stand", "p_throws", "balls", "strikes", "game_date",
+    "home_team", "away_team", "batter", "pitch_name", "inning",
 ]
 CALLS = ("called_strike", "ball", "blocked_ball")
 
@@ -142,6 +143,20 @@ def main():
     result["SL+"] = 100 * result["called_strikes"] / result["expected_strikes"]
     result = result[["player", "SL+", "called_strikes", "expected_strikes", "eligible_takes"]]
     result.to_csv(Path(__file__).with_name("sl_plus_2026.csv"), float_format="%.6f")
+    profiles = takes[KEY + [
+        "game_date", "fielder_2", "batter", "home_team", "away_team", "inning",
+        "pitch_name", "balls", "strikes", "plate_x", "called", "expected",
+    ]].copy()
+    profiles["zone_height"] = (
+        (takes["plate_z"] - takes["sz_bot"]) / (takes["sz_top"] - takes["sz_bot"])
+    ).astype("float32")
+    for field in ("fielder_2", "batter"):
+        profiles[field] = profiles[field].fillna(0).astype("int32")
+    profiles["expected"] = profiles["expected"].astype("float32")
+    profiles["plate_x"] = profiles["plate_x"].astype("float32")
+    profiles.sort_values(["fielder_2", "game_date", *KEY]).to_parquet(
+        Path(__file__).with_name("catcher_pitches_2026.parquet"), index=False
+    )
     print(f"{len(result)} catchers")
 
 

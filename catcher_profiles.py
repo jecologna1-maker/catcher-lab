@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageOps
 
 
 @st.cache_data
-def load_profile_data():
+def load_profile_data(data_version):
     folder = Path(__file__).parent
     catchers = pd.read_csv(folder / "sl_plus_2026.csv").sort_values("player")
     pitches = pd.read_parquet(folder / "catcher_pitches_2026.parquet")
@@ -207,7 +207,9 @@ def show_catcher_profile(season):
         st.info("Catcher profiles are available for the 2026 regular season.")
         return
 
-    catchers, pitches = load_profile_data()
+    data_file = Path(__file__).with_name("catcher_pitches_2026.parquet")
+    data_version = (data_file.stat().st_mtime_ns, data_file.stat().st_size)
+    catchers, pitches = load_profile_data(data_version)
     roster = catchers.set_index("catcher_id")
     catcher = st.sidebar.selectbox(
         "Catcher", roster.index.tolist(), format_func=lambda player: roster.at[player, "player"]

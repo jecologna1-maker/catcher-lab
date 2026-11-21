@@ -1,3 +1,5 @@
+from base64 import b64encode
+from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
@@ -6,6 +8,7 @@ import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
+from PIL import Image
 
 
 @st.cache_data
@@ -71,18 +74,37 @@ def heat_map(pitches, overlay=None):
     actual = density(pitches["called"].astype(float)) / denominator
     expected = density(pitches["expected"]) / denominator
     i, j = np.where(support >= 2)
-    # Slight overlap prevents hairline seams between adjacent rendered samples.
     surface = pd.DataFrame({
-        "left": x_edges[i], "right": x_edges[i + 1] + 0.012,
-        "bottom": z_edges[j], "top": z_edges[j + 1] + 0.012,
+        "left": x_edges[i], "right": x_edges[i + 1],
+        "bottom": z_edges[j], "top": z_edges[j + 1],
         "actual": actual[i, j], "expected": expected[i, j],
         "difference": actual[i, j] - expected[i, j],
         "support": support[i, j],
     })
-    # Streamlit renders the dense surface as part of the same Vega chart as the links.
+    # Render the smooth surface as one image to avoid seams between samples.
+    palette = np.array([
+        [103, 0, 31], [214, 96, 77], [247, 247, 247], [67, 147, 195], [5, 48, 97]
+    ])
+    ranges = np.linspace(-0.25, 0.25, len(palette))
+    difference = actual - expected
+    rgb = [np.interp(difference, ranges, channel) for channel in palette.T]
+    alpha = 255 * np.clip((support - 2) / 12, 0, 1)
+    pixels = np.stack([*rgb, alpha], axis=-1).transpose(1, 0, 2)[::-1].astype("uint8")
+    image = Image.fromarray(pixels).resize((600, 504), Image.Resampling.BILINEAR)
+    data = BytesIO()
+    image.save(data, format="PNG")
+    backdrop = pd.DataFrame({
+        "x": [0], "z": [0.5],
+        "image": ["data:image/png;base64," + b64encode(data.getvalue()).decode("ascii")],
+    })
     x_axis = dict(title="Horizontal location (ft)", scale=alt.Scale(domain=[-2.5, 2.5], nice=False))
     z_axis = dict(title="Batter strike-zone height", scale=alt.Scale(domain=[-1.6, 2.6], nice=False))
-    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect(clip=True).encode(
+    raster = alt.Chart(backdrop).mark_image(
+        width=alt.ExprRef(expr="width"), height=alt.ExprRef(expr="height"), aspect=False
+    ).encode(x=alt.X("x:Q", **x_axis), y=alt.Y("z:Q", **z_axis), url="image:N")
+    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect(
+        clip=True, opacity=0.001
+    ).encode(
         x=alt.X("left:Q", **x_axis),
         x2="right:Q",
         y=alt.Y("bottom:Q", **z_axis),
@@ -92,10 +114,6 @@ def heat_map(pitches, overlay=None):
             scale=alt.Scale(domain=[-0.25, 0.25], scheme="redblue", clamp=True),
             legend=alt.Legend(format="+.0%"),
         ),
-        opacity=alt.Opacity(
-            "support:Q", scale=alt.Scale(domain=[2, 14], range=[0.12, 1], clamp=True),
-            legend=None,
-        ),
         tooltip=[
             alt.Tooltip("actual:Q", title="Smoothed called strike rate", format=".1%"),
             alt.Tooltip("expected:Q", title="Smoothed expected rate", format=".1%"),
@@ -103,7 +121,7 @@ def heat_map(pitches, overlay=None):
             alt.Tooltip("support:Q", title="Weighted nearby takes", format=".1f"),
         ],
     )
-    layers = chart + zone_outline()
+    layers = raster + chart + zone_outline()
     if overlay is not None:
         dots = alt.Chart(overlay).mark_circle(
             size=95, opacity=0.93, stroke="white", strokeWidth=1, cursor="pointer", clip=True

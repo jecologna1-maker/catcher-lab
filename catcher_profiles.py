@@ -162,6 +162,34 @@ def heat_map(pitches, overlay=None, hitter=None):
     return figure
 
 
+@st.cache_data
+def load_stance_usage(file_version):
+    source = Path(__file__).with_name("catcher_stance_2026.csv")
+    return pd.read_csv(source).set_index("id")
+
+
+def show_stance_usage(catcher):
+    st.subheader("Catcher stance usage")
+    source = Path(__file__).with_name("catcher_stance_2026.csv")
+    stance = load_stance_usage(source.stat().st_mtime_ns)
+    if catcher not in stance.index:
+        st.caption("Baseball Savant has no stance data for this catcher.")
+        return
+    row = stance.loc[catcher]
+    labels = ["Both knees up", "Left knee down", "Right knee down", "Both knees down"]
+    values = row[["both_up_pct", "l_down_r_up_pct", "r_down_l_up_pct", "both_down_pct"]]
+    st.caption(
+        f"{int(row['pitches']):,} tracked pitches in the 2026 regular season. "
+        "Stance usage is measured at pitch release."
+    )
+    for column, label, value in zip(st.columns(4), labels, values):
+        column.metric(label, f"{value:.1%}")
+    st.caption(
+        "Source: [Baseball Savant Catcher Stance](https://baseballsavant.mlb.com/"
+        "leaderboard/catcher-stance?type=catcher&seasonStart=2026&seasonEnd=2026)."
+    )
+
+
 def show_catcher_profile(season):
     if season != 2026:
         st.info("Catcher profiles are available for the 2026 regular season.")
@@ -178,6 +206,11 @@ def show_catcher_profile(season):
     profile = pitches.loc[pitches["fielder_2"].eq(catcher)]
     st.header(player["player"])
     st.caption("2026 regular season · Catcher profile")
+    show_receiving_profile(profile)
+    show_stance_usage(catcher)
+
+
+def show_receiving_profile(profile):
     metrics = st.container()
 
     st.subheader("Called strikes by location")

@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import UUID
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
@@ -49,57 +50,77 @@ def zone_outline():
     ).encode(x="left:Q", x2="right:Q", y="bottom:Q", y2="top:Q")
 
 
-def heat_map(pitches):
-    # Align the vertical coordinates to each batter's measured strike-zone bounds.
-    visible = pitches.loc[
-        pitches["plate_x"].between(-2, 2, inclusive="left")
-        & pitches["zone_height"].between(-0.8, 1.8, inclusive="left")
-    ].copy()
-    visible["x0"] = (visible["plate_x"] * 4).floordiv(1) / 4
-    visible["z0"] = (visible["zone_height"] * 5).floordiv(1) / 5
-    cells = visible.groupby(["x0", "z0"], as_index=False).agg(
-        takes=("called", "size"), actual=("called", "mean"), expected=("expected", "mean")
-    )
-    cells["x1"] = cells["x0"] + 0.25
-    cells["z1"] = cells["z0"] + 0.20
-    cells["difference"] = cells["actual"] - cells["expected"]
-    chart = alt.Chart(cells).mark_rect().encode(
-        x=alt.X("x0:Q", title="Horizontal location (ft)", scale=alt.Scale(domain=[-2, 2])),
-        x2="x1:Q",
-        y=alt.Y("z0:Q", title="Batter strike-zone height", scale=alt.Scale(domain=[-0.8, 1.8])),
-        y2="z1:Q",
+def heat_map(pitches, overlay=None):
+    # Smooth counts and strike totals separately before calculating rates.
+    x_edges = np.linspace(-2.5, 2.5, 101)
+    z_edges = np.linspace(-1.6, 2.6, 85)
+    x = (x_edges[:-1] + x_edges[1:]) / 2
+    z = (z_edges[:-1] + z_edges[1:]) / 2
+    smooth_x = np.exp(-0.5 * ((x[:, None] - x) / 0.17) ** 2)
+    smooth_z = np.exp(-0.5 * ((z[:, None] - z) / 0.14) ** 2)
+
+    def density(weights=None):
+        grid, _, _ = np.histogram2d(
+            pitches["plate_x"], pitches["zone_height"],
+            bins=(x_edges, z_edges), weights=weights,
+        )
+        return smooth_x @ grid @ smooth_z.T
+
+    support = density()
+    denominator = np.where(support > 0, support, 1)
+    actual = density(pitches["called"].astype(float)) / denominator
+    expected = density(pitches["expected"]) / denominator
+    i, j = np.where(support >= 2)
+    surface = pd.DataFrame({
+        "left": x_edges[i], "right": x_edges[i + 1],
+        "bottom": z_edges[j], "top": z_edges[j + 1],
+        "actual": actual[i, j], "expected": expected[i, j],
+        "difference": actual[i, j] - expected[i, j],
+        "support": support[i, j],
+    })
+    # Streamlit renders the dense surface as part of the same Vega chart as the links.
+    x_axis = dict(title="Horizontal location (ft)", scale=alt.Scale(domain=[-2.5, 2.5]))
+    z_axis = dict(title="Batter strike-zone height", scale=alt.Scale(domain=[-1.6, 2.6]))
+    chart = alt.Chart(alt.InlineData(values=surface.to_dict("records"))).mark_rect().encode(
+        x=alt.X("left:Q", **x_axis),
+        x2="right:Q",
+        y=alt.Y("bottom:Q", **z_axis),
+        y2="top:Q",
         color=alt.Color(
-            "difference:Q",
-            title="Actual minus expected",
+            "difference:Q", title="Actual minus expected",
             scale=alt.Scale(domain=[-0.25, 0.25], scheme="redblue", clamp=True),
             legend=alt.Legend(format="+.0%"),
         ),
-        tooltip=[
-            alt.Tooltip("takes:Q", title="Takes"),
-            alt.Tooltip("actual:Q", title="Called strike rate", format=".1%"),
-            alt.Tooltip("expected:Q", title="Expected rate", format=".1%"),
-            alt.Tooltip("difference:Q", title="Actual minus expected", format="+.1%"),
-        ],
-    )
-    return (chart + zone_outline()).properties(height=330)
-
-
-def pitch_chart(pitches):
-    chart = alt.Chart(pitches).mark_circle(size=90, opacity=0.78, cursor="pointer").encode(
-        x=alt.X("plate_x:Q", title="Horizontal location (ft)", scale=alt.Scale(zero=False)),
-        y=alt.Y("zone_height:Q", title="Batter strike-zone height", scale=alt.Scale(zero=False)),
-        color=alt.Color(
-            "Initial call:N",
-            scale=alt.Scale(domain=["Ball", "Called strike"], range=["#c95f4a", "#2376ad"]),
+        opacity=alt.Opacity(
+            "support:Q", scale=alt.Scale(domain=[2, 14], range=[0.12, 1], clamp=True),
+            legend=None,
         ),
-        href="Video:N",
         tooltip=[
-            "Pitch:N", "Inning:Q", "Count:N", "Plate appearance:Q", "Pitch number:Q",
-            "Initial call:N",
-            alt.Tooltip("Called-strike probability:Q", format=".1%"),
+            alt.Tooltip("actual:Q", title="Smoothed called strike rate", format=".1%"),
+            alt.Tooltip("expected:Q", title="Smoothed expected rate", format=".1%"),
+            alt.Tooltip("difference:Q", title="Actual minus expected", format="+.1%"),
+            alt.Tooltip("support:Q", title="Weighted nearby takes", format=".1f"),
         ],
     )
-    return (zone_outline() + chart).properties(height=330)
+    layers = chart + zone_outline()
+    if overlay is not None:
+        dots = alt.Chart(overlay).mark_circle(
+            size=95, opacity=0.93, stroke="white", strokeWidth=1, cursor="pointer", clip=True
+        ).encode(
+            x=alt.X("plate_x:Q", **x_axis),
+            y=alt.Y("zone_height:Q", **z_axis),
+            color=alt.Color(
+                "Initial call:N",
+                scale=alt.Scale(domain=["Ball", "Called strike"], range=["#bb4b37", "#17629c"]),
+            ),
+            href="Video:N",
+            tooltip=[
+                "Pitch:N", "Inning:Q", "Count:N", "Plate appearance:Q", "Pitch number:Q",
+                "Initial call:N", alt.Tooltip("Called-strike probability:Q", format=".1%"),
+            ],
+        )
+        layers = (layers + dots).resolve_scale(color="independent")
+    return layers.properties(height=460)
 
 
 def show_catcher_profile(season):
@@ -124,13 +145,14 @@ def show_catcher_profile(season):
 
     st.subheader("Called strikes by location")
     st.caption(
-        "Blue means more called strikes than expected. Red means fewer. "
-        "Hover over a cell for the actual rate, expected rate, and pitch count. "
+        "Blue shows more called strikes than expected. Red shows fewer. "
+        "The surface averages nearby pitches and uses the full season. "
         "Height 0 is the bottom of the batter’s zone and 1 is the top."
     )
-    st.altair_chart(heat_map(profile), use_container_width=True)
+    if not st.toggle("Overlay individual pitches", key="show_pitch_overlay"):
+        st.altair_chart(heat_map(profile), use_container_width=True)
+        return
 
-    st.subheader("Pitch video")
     games = (
         profile.drop_duplicates("game_pk").sort_values(["game_date", "game_pk"], ascending=False)
         .set_index("game_pk")
@@ -158,7 +180,9 @@ def show_catcher_profile(season):
         "pitch_number": "Pitch number", "expected": "Called-strike probability",
     })
     st.caption("Click a pitch dot or its Watch link to open the clip on Baseball Savant.")
-    st.altair_chart(pitch_chart(game_pitches), use_container_width=True)
+    st.altair_chart(heat_map(profile, game_pitches), use_container_width=True)
+    if (~game_pitches["plate_x"].between(-2.5, 2.5) | ~game_pitches["zone_height"].between(-1.6, 2.6)).any():
+        st.caption("The pitch table also includes locations outside the chart.")
     if game_pitches["Video"].isna().any():
         st.caption("Pitches without a Watch link could not be matched to a Savant clip.")
     st.dataframe(

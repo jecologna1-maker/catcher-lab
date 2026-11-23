@@ -35,6 +35,7 @@ def filter_pitches(pitches, families, locations, pitchers, hitters, base_states=
 def rank_catchers(pitches, minimum, bottom=False):
     ranked = pitches.groupby("fielder_2").agg(
         takes=("called", "size"), actual=("called", "sum"), expected=("expected", "sum"),
+        slaa=("slaa", "sum"), framing_runs=("framing_runs_aa", "sum"),
     )
     ranked = ranked.loc[ranked["takes"].ge(minimum) & ranked["expected"].gt(0)].copy()
     ranked["sl_plus"] = 100 * ranked["actual"] / ranked["expected"]
@@ -165,9 +166,9 @@ def reset_filters():
 
 
 def show_sl_plus_leaderboard(season):
-    st.header("SL+ Leaderboard")
+    st.header("jcSL+ Leaderboard")
     if season != 2026:
-        st.info("Interactive SL+ rankings are available for the 2026 regular season.")
+        st.info("Interactive jcSL+ rankings are available for the 2026 regular season.")
         return
 
     with st.container(key="sl_workspace"):
@@ -214,11 +215,11 @@ def show_sl_plus_leaderboard(season):
             st.info("No catchers meet the minimum for these filters.")
             return
 
-        st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by SL+")
+        st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by jcSL+")
         st.caption(f"{len(matches):,} matching takes · 2026 regular season")
         st.html(
             '<div class="sl-report-labels" aria-hidden="true">'
-            '<span>Rank / Catcher</span><span>Filtered SL+</span><span>Overall SL+</span></div>'
+            '<span>Rank / Catcher</span><span>Filtered jcSL+</span><span>Overall jcSL+</span></div>'
         )
         season_stats = catchers.set_index("catcher_id")
         filters_key = (tuple(families), tuple(locations), tuple(pitchers), tuple(hitters), tuple(base_states))
@@ -237,10 +238,11 @@ def show_sl_plus_leaderboard(season):
                     f'<div class="sl-ranked-player">'
                     f'<h3>{name}</h3>'
                     f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
-                    f' · {row["expected"]:,.1f} Expected</span></div>'
+                    f' · {row["expected"]:,.1f} Expected</span>'
+                    f'<span>{row["slaa"]:+.2f} SLAA · {row["framing_runs"]:+.2f} Framing Runs Above Average</span></div>'
                     f'<div class="sl-score-pair">'
-                    f'<div class="sl-rank-score"><span>Filtered SL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
-                    f'<div class="sl-rank-overall"><span>Overall SL+</span><strong>{overall:.2f}</strong></div>'
+                    f'<div class="sl-rank-score"><span>Filtered jcSL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
+                    f'<div class="sl-rank-overall"><span>Overall jcSL+</span><strong>{overall:.2f}</strong></div>'
                     f'</div>'
                     f'</div>'
                 )

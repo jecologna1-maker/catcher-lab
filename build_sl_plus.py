@@ -7,6 +7,9 @@ For the overturns CSV query the same season with hfABSFlag set to
 is\.\.challengeabs\.\.overturned| (URL-encode the value).
 Use the MLB Stats API schedule with sportId=1, season=2026, and gameType=R.
 The schedule verifies coverage and the output is written beside this script.
+For --review or --enhanced add hydrate=officials to the schedule request. The
+enhanced build adds pitch trajectory and the
+official home-plate umpire. Use --review to evaluate without replacing scores.
 """
 import argparse
 import json
@@ -15,6 +18,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+
+from framing_metrics import RUN_FIELDS, strike_values
+
+from called_strike_model import (
+    TRAJECTORY_FIELDS, chronological_review, cross_fit, metrics, model_features,
+)
 
 KEY = ["game_pk", "at_bat_number", "pitch_number"]
 FIELDS = KEY + [
@@ -26,8 +35,9 @@ FIELDS = KEY + [
 CALLS = ("called_strike", "ball", "blocked_ball")
 
 
-def load_takes(paths, overturn_path, schedule_path):
-    batches = [pd.read_csv(path, usecols=FIELDS) for path in paths]
+def load_takes(paths, overturn_path, schedule_path, extra_fields=()):
+    fields = [*FIELDS, *extra_fields]
+    batches = [pd.read_csv(path, usecols=fields) for path in paths]
     if any(len(batch) >= 24999 for batch in batches):
         raise ValueError("A pitch query may have reached the Statcast export limit")
     pitches = pd.concat(batches, ignore_index=True)
@@ -81,7 +91,7 @@ def spatial_prior(counts, strikes):
     return (smooth(strikes) + 0.5) / (smooth(counts) + 1)
 
 
-def score(takes):
+def baseline_predictor(takes):
     # Separate slots for batter/pitcher handedness and every pre-pitch count.
     hands = takes["stand"].eq("R").astype(int) * 2 + takes["p_throws"].eq("R")
     count = takes["balls"].astype(int) * 3 + takes["strikes"].astype(int)
@@ -91,18 +101,24 @@ def score(takes):
     shape = (4, 12, 40, 40)
     cells = np.ravel_multi_index((hands, count, x, z), shape)
     called = takes["called"].to_numpy(dtype=float)
+    def predict(train, test):
+        counts = np.bincount(cells[train], minlength=np.prod(shape)).reshape(shape)
+        strikes = np.bincount(cells[train], weights=called[train], minlength=np.prod(shape)).reshape(shape)
+        prior = spatial_prior(counts, strikes)
+        probabilities = (strikes + 16 * prior) / (counts + 16)
+        return probabilities.ravel()[cells[test]]
+
+    return predict
+
+
+def score(takes):
+    predict = baseline_predictor(takes)
+    called = takes["called"].to_numpy(dtype=float)
     folds = takes["game_pk"].to_numpy() % 5
     predictions = np.empty(len(takes))
     for fold in range(5):
-        train = folds != fold
-        counts = np.bincount(cells[train], minlength=np.prod(shape)).reshape(shape)
-        strikes = np.bincount(
-            cells[train], weights=called[train], minlength=np.prod(shape)
-        ).reshape(shape)
-        prior = spatial_prior(counts, strikes)
-        # Shrink sparse count/handedness cells toward the league's location baseline.
-        probabilities = (strikes + 16 * prior) / (counts + 16)
-        predictions[~train] = probabilities.ravel()[cells[~train]]
+        test = folds == fold
+        predictions[test] = predict(~test, test)
     print(f"{len(takes):,} scored takes; held-out Brier {(np.square(predictions - called)).mean():.4f}")
     print(f"League called rate {called.mean():.4f}; mean estimate {predictions.mean():.4f}")
     calibration = pd.DataFrame({"estimate": predictions, "actual": called})
@@ -131,9 +147,35 @@ def main():
     parser.add_argument("pitch_directory", type=Path)
     parser.add_argument("overturn_csv", type=Path)
     parser.add_argument("schedule_json", type=Path)
+    parser.add_argument("--review", action="store_true", help="Compare models without updating outputs")
+    parser.add_argument("--enhanced", action="store_true", help="Build with the enhanced model")
     args = parser.parse_args()
-    takes = load_takes(sorted(args.pitch_directory.glob("*.csv")), args.overturn_csv, args.schedule_json)
-    takes["expected"] = score(takes)
+    extra_fields = TRAJECTORY_FIELDS if args.review or args.enhanced else ()
+    takes = load_takes(sorted(args.pitch_directory.glob("*.csv")), args.overturn_csv,
+                       args.schedule_json, extra_fields=[*extra_fields, *RUN_FIELDS])
+    if extra_fields:
+        features = model_features(takes, args.schedule_json)
+        review = chronological_review(takes, features, baseline_predictor(takes))
+        if args.review:
+            return
+        if any(
+            review["challenger"][group][metric] >= review["baseline"][group][metric]
+            for group in ("all", "edge") for metric in ("brier", "log_loss")
+        ):
+            raise ValueError("Enhanced model did not improve both held-out probability scores")
+        takes["expected"] = cross_fit(takes, features)
+        review["cross_fitted"] = metrics(
+            takes["called"].to_numpy(dtype=float), takes["expected"].to_numpy(),
+            features["signed_edge_distance"].abs().le(0.25).to_numpy(),
+        )
+        Path(__file__).with_name("called_strike_model_2026.json").write_text(
+            json.dumps(review, indent=2) + "\n", encoding="utf-8"
+        )
+    else:
+        takes["expected"] = score(takes)
+    takes["strike_run_value"] = strike_values(takes)
+    takes["slaa"] = takes["called"].astype(float) - takes["expected"].astype("float32").astype(float)
+    takes["framing_runs_aa"] = takes["slaa"] * takes["strike_run_value"]
     result = takes.groupby(takes["fielder_2"].astype(int)).agg(
         eligible_takes=("called", "size"),
         called_strikes=("called", "sum"),
@@ -143,11 +185,14 @@ def main():
     result["player"] = result.index.map(names_for(result.index))
     result["SL+"] = 100 * result["called_strikes"] / result["expected_strikes"]
     result = result[["player", "SL+", "called_strikes", "expected_strikes", "eligible_takes"]]
+    contextual = takes.groupby(takes["fielder_2"].astype(int))[["slaa", "framing_runs_aa"]].sum()
+    result["SLAA"] = contextual["slaa"]
+    result["Framing Runs Above Average"] = contextual["framing_runs_aa"]
     result.to_csv(Path(__file__).with_name("sl_plus_2026.csv"), float_format="%.6f")
     profiles = takes[KEY + [
         "game_date", "fielder_2", "batter", "home_team", "away_team", "inning",
         "pitch_name", "pitch_type", "p_throws", "stand", "balls", "strikes",
-        "plate_x", "called", "expected",
+        "plate_x", "called", "expected", "strike_run_value", "slaa", "framing_runs_aa",
     ]].copy()
     profiles["runners_on"] = takes[["on_1b", "on_2b", "on_3b"]].notna().any(axis=1)
     profiles["zone_height"] = (

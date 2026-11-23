@@ -1,4 +1,6 @@
 
+import json
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -94,8 +96,8 @@ def show_leaderboard(season):
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
     if category == "Receiving" and season == 2026:
-        metric = st.sidebar.radio("Receiving metric", ["Savant framing", "SL+"])
-        if metric == "SL+":
+        metric = st.sidebar.radio("Receiving metric", ["Savant framing", "jcSL+"])
+        if metric == "jcSL+":
             show_sl_plus(search)
             return
 
@@ -135,18 +137,34 @@ def show_leaderboard(season):
 
 
 def show_sl_plus(search):
-    st.subheader("Catcher SL+")
+    st.subheader("Catcher jcSL+")
     st.caption(
         "2026 regular season. 100 × actual called strikes ÷ expected called strikes. "
         "100 means the catcher received as many called strikes as expected."
     )
-    with st.expander("How SL+ is calculated"):
+    with st.expander("How the framing metrics are calculated"):
         st.write(
             "Catcher Lab estimates called-strike probabilities from tracked takes "
-            "using pitch location, batter zone height, count, and batter and pitcher "
-            "handedness. Games are scored using a model fitted on other games, "
-            "without catcher identity. The scoring uses the initial umpire call "
-            "before any ABS overturn."
+            "using pitch location, batter zone height, count, batter and pitcher "
+            "handedness, velocity, horizontal and vertical approach angles, "
+            "horizontal and vertical movement, spin rate and axis, and the home-plate "
+            "umpire. Each game is scored by a model trained on other games. The scoring "
+            "uses the initial umpire call before an ABS overturn and excludes catcher identity."
+        )
+        st.write(
+            "SLAA adds actual minus expected called strikes across pitches. "
+            "Framing Runs Above Average weights that difference by the value of changing "
+            "a ball to a strike for the pre-pitch runners, outs, and count. "
+            "Run weights use the difference between Savant’s median run-expectancy changes "
+            "for balls and called strikes, with sparse states pulled toward their count average."
+        )
+        review = json.loads(Path(__file__).with_name("called_strike_model_2026.json").read_text())
+        baseline = review["baseline"]["edge"]
+        challenger = review["challenger"]["edge"]
+        st.caption(
+            f"On {challenger['pitches']:,} borderline takes from August and September games, "
+            f"Brier score improved from {baseline['brier']:.4f} to {challenger['brier']:.4f}. "
+            "Lower scores indicate more accurate probabilities."
         )
     minimum = st.sidebar.number_input(
         "Minimum eligible takes", min_value=0, value=200, step=50
@@ -158,13 +176,14 @@ def show_sl_plus(search):
     df = df.sort_values("SL+", ascending=False).rename(
         columns={
             "player": "Catcher",
+            "SL+": "jcSL+",
             "catcher_id": "MLB player ID",
             "called_strikes": "Called strikes",
             "expected_strikes": "Expected strikes",
             "eligible_takes": "Eligible takes",
         }
     )
-    df = df.round({"SL+": 2, "Expected strikes": 2})
+    df = df.round({"jcSL+": 2, "Expected strikes": 2, "SLAA": 2, "Framing Runs Above Average": 2})
     show_results(df, ["Catcher"], "catcher_sl_plus_2026.csv", "sl_plus_columns")
 
 
@@ -244,8 +263,8 @@ def show_pitch_search(season):
 
 st.sidebar.header("Filters")
 season = st.sidebar.selectbox("Season", list(range(2026, 2017, -1)), index=0)
-views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "SL+ Leaderboard"]
-default_view = "SL+ Leaderboard" if st.query_params.get("view") == "sl-plus" else "Leaderboards"
+views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard"]
+default_view = "jcSL+ Leaderboard" if st.query_params.get("view") == "sl-plus" else "Leaderboards"
 view = st.radio(
     "View", views, index=views.index(default_view), horizontal=True,
     label_visibility="collapsed", key="catcher_nav",

@@ -243,10 +243,13 @@ def show_receiving_profile(profile):
     expected = profile["expected"].astype("float64").sum()
     with metrics:
         columns = st.columns(4)
-        columns[0].metric("SL+", f"{100 * actual / expected:.2f}" if expected > 0 else "—")
+        columns[0].metric("jcSL+", f"{100 * actual / expected:.2f}" if expected > 0 else "—")
         columns[1].metric("Called strikes", f"{actual:,}")
         columns[2].metric("Expected strikes", f"{expected:,.1f}")
         columns[3].metric("Eligible takes", f"{len(profile):,}")
+        strikes, runs = st.columns(2)
+        strikes.metric("SLAA", f"{profile['slaa'].sum():+.2f}")
+        runs.metric("Framing Runs Above Average", f"{profile['framing_runs_aa'].sum():+.2f}")
     st.caption(
         "Warm colors show more called strikes than expected. Blue shows fewer. "
         "The surface averages nearby takes that match your filters. "

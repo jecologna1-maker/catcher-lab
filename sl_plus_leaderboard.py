@@ -170,81 +170,87 @@ def show_sl_plus_leaderboard(season):
         st.info("Interactive SL+ rankings are available for the 2026 regular season.")
         return
 
-    with st.container(border=True, key="sl_filter_panel"):
-        st.subheader("Filters")
-        st.caption("Choose any combination. An empty group includes all options.")
-        first, second = st.columns(2)
-        with first:
-            families = st.pills(
-                "Pitch Group", list(PITCH_FAMILIES)[1:], selection_mode="multi",
-                format_func=str.title, key="sl_family",
+    with st.container(key="sl_workspace"):
+        filters, results = st.columns([1, 2.25], gap="medium")
+    with filters:
+        ranking = st.radio("Ranking", ["Top 5", "Bottom 5"], horizontal=True, key="sl_ranking")
+        with st.container(key="sl_filter_panel"):
+            with st.expander("Pitch Filters", expanded=False):
+                families = st.pills(
+                    "Pitch Group", list(PITCH_FAMILIES)[1:], selection_mode="multi",
+                    format_func=str.title, key="sl_family",
+                )
+                locations = st.pills(
+                    "Pitch Location", LOCATIONS[1:], selection_mode="multi",
+                    format_func=str.title, key="sl_location",
+                )
+                pitchers = st.pills(
+                    "Pitcher Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_pitcher",
+                )
+                hitters = st.pills(
+                    "Hitter Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_hitter",
+                )
+                base_states = st.pills("Base State", list(BASE_STATES), selection_mode="multi", key="sl_base")
+                minimum = st.number_input(
+                    "Minimum Eligible Takes", min_value=1, value=50, step=10, key="sl_min",
+                )
+                st.button("Reset Filters", on_click=reset_filters, key="sl_reset")
+        active = [
+            f"{label}: {', '.join(value.title() for value in values)}"
+            for label, values in (
+                ("Pitches", families), ("Location", locations), ("Pitcher", pitchers),
+                ("Hitter", hitters), ("Bases", base_states),
             )
-        with second:
-            locations = st.pills(
-                "Pitch Location", LOCATIONS[1:], selection_mode="multi",
-                format_func=str.title, key="sl_location",
-            )
-        first, second = st.columns(2)
-        with first:
-            pitchers = st.pills(
-                "Pitcher Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_pitcher",
-            )
-        with second:
-            hitters = st.pills(
-                "Hitter Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_hitter",
-            )
-        first, second = st.columns(2)
-        with first:
-            base_states = st.pills(
-                "Base State", list(BASE_STATES), selection_mode="multi", key="sl_base",
-            )
-        with second:
-            minimum = st.number_input(
-                "Minimum Eligible Takes", min_value=1, value=50, step=10, key="sl_min",
-            )
-        st.button("Reset Filters", on_click=reset_filters, key="sl_reset")
-
-    ranking = st.radio("Ranking", ["Top 5", "Bottom 5"], horizontal=True, key="sl_ranking")
+            if values
+        ]
+        st.caption(" · ".join(active) if active else "All pitch groups, locations, hands, and base states.")
+        st.caption(f"Minimum {minimum:,} Eligible Takes")
     bottom = ranking == "Bottom 5"
     catchers, pitches = profile_data()
     matches = filter_pitches(pitches, families, locations, pitchers, hitters, base_states)
     ranked = rank_catchers(matches, minimum, bottom=bottom)
-    if ranked.empty:
-        st.info("No catchers meet the minimum for these filters.")
-        return
+    with results, st.container(border=True, key="sl_report"):
+        if ranked.empty:
+            st.info("No catchers meet the minimum for these filters.")
+            return
 
-    st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by SL+")
-    season_stats = catchers.set_index("catcher_id")
-    filters_key = (tuple(families), tuple(locations), tuple(pitchers), tuple(hitters), tuple(base_states))
-    for position, (catcher, row) in enumerate(ranked.iterrows(), 1):
-        with st.container(border=True, key=f"sl_rank_{catcher}"):
-            name = escape(season_stats.at[catcher, "player"])
-            overall = season_stats.at[catcher, "SL+"]
-            photo = (
-                "https://img.mlbstatic.com/mlb-photos/image/upload/"
-                f"w_160,q_auto:best/v1/people/{int(catcher)}/headshot/67/current"
-            )
-            st.html(
-                f'<div class="sl-ranked-row">'
-                f'<span class="sl-rank-position" aria-label="Rank {position}">{position:02d}</span>'
-                f'<img class="sl-player-photo" src="{photo}" alt="" width="46" height="46" loading="lazy">'
-                f'<div class="sl-ranked-player">'
-                f'<h3>{name}</h3>'
-                f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
-                f' · {row["expected"]:,.1f} Expected</span></div>'
-                f'<div class="sl-score-pair">'
-                f'<div class="sl-rank-score"><span>Filtered SL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
-                f'<div class="sl-rank-overall"><span>Overall SL+</span><strong>{overall:.2f}</strong></div>'
-                f'</div>'
-                f'</div>'
-            )
-            reel_key = f"sl_reel_{catcher}"
-            with st.expander("Savant Clips"):
-                cached = st.session_state.get(reel_key)
-                if cached and cached[0] == filters_key:
-                    show_clip_reel(cached[1], catcher)
-                elif st.button("Load 10 Clips", key=f"sl_load_{catcher}", width="stretch"):
-                    with st.spinner("Finding the matching pitches on Baseball Savant…"):
-                        clips = compile_clips(matches.loc[matches["fielder_2"].eq(catcher)])
-                    st.session_state[reel_key] = (filters_key, clips)
-                    show_clip_reel(clips, catcher)
+        st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by SL+")
+        st.caption(f"{len(matches):,} matching takes · 2026 regular season")
+        st.html(
+            '<div class="sl-report-labels" aria-hidden="true">'
+            '<span>Rank / Catcher</span><span>Filtered SL+</span><span>Overall SL+</span></div>'
+        )
+        season_stats = catchers.set_index("catcher_id")
+        filters_key = (tuple(families), tuple(locations), tuple(pitchers), tuple(hitters), tuple(base_states))
+        for position, (catcher, row) in enumerate(ranked.iterrows(), 1):
+            with st.container(key=f"sl_rank_{catcher}"):
+                name = escape(season_stats.at[catcher, "player"])
+                overall = season_stats.at[catcher, "SL+"]
+                photo = (
+                    "https://img.mlbstatic.com/mlb-photos/image/upload/"
+                    f"w_160,q_auto:best/v1/people/{int(catcher)}/headshot/67/current"
+                )
+                st.html(
+                    f'<div class="sl-ranked-row">'
+                    f'<span class="sl-rank-position" aria-label="Rank {position}">{position:02d}</span>'
+                    f'<img class="sl-player-photo" src="{photo}" alt="" width="46" height="46" loading="lazy">'
+                    f'<div class="sl-ranked-player">'
+                    f'<h3>{name}</h3>'
+                    f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
+                    f' · {row["expected"]:,.1f} Expected</span></div>'
+                    f'<div class="sl-score-pair">'
+                    f'<div class="sl-rank-score"><span>Filtered SL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
+                    f'<div class="sl-rank-overall"><span>Overall SL+</span><strong>{overall:.2f}</strong></div>'
+                    f'</div>'
+                    f'</div>'
+                )
+                reel_key = f"sl_reel_{catcher}"
+                with st.expander("Savant Clips"):
+                    cached = st.session_state.get(reel_key)
+                    if cached and cached[0] == filters_key:
+                        show_clip_reel(cached[1], catcher)
+                    elif st.button("Load 10 Clips", key=f"sl_load_{catcher}", width="stretch"):
+                        with st.spinner("Finding the matching pitches on Baseball Savant…"):
+                            clips = compile_clips(matches.loc[matches["fielder_2"].eq(catcher)])
+                        st.session_state[reel_key] = (filters_key, clips)
+                        show_clip_reel(clips, catcher)

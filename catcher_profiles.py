@@ -248,8 +248,8 @@ def show_receiving_profile(profile):
         columns[2].metric("Expected strikes", f"{expected:,.1f}")
         columns[3].metric("Eligible takes", f"{len(profile):,}")
         strikes, runs = st.columns(2)
-        strikes.metric("SLAA", f"{profile['slaa'].sum():+.2f}")
-        runs.metric("Framing Runs Above Average", f"{profile['framing_runs_aa'].sum():+.2f}")
+        strikes.metric("jcSLAA", f"{profile['slaa'].sum():+.2f}")
+        runs.metric("jcFRAA", f"{profile['framing_runs_aa'].sum():+.2f}")
     st.caption(
         "Warm colors show more called strikes than expected. Blue shows fewer. "
         "The surface averages nearby takes that match your filters. "

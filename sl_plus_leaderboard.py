@@ -43,13 +43,13 @@ def rank_catchers(pitches, minimum, bottom=False):
 
 
 @st.cache_data(ttl=21600, max_entries=256, show_spinner=False)
-def savant_game_videos(game_id):
+def savant_game_pitches(game_id):
     reply = requests.get(
         "https://baseballsavant.mlb.com/gf", params={"game_pk": game_id}, timeout=12,
     )
     reply.raise_for_status()
     game = reply.json()
-    videos = {}
+    pitches = {}
     for side in ("home_pitchers", "away_pitchers"):
         for pitcher in game[side].values():
             for pitch in pitcher:
@@ -57,11 +57,29 @@ def savant_game_videos(game_id):
                     key = tuple(int(pitch[field]) for field in (
                         "ab_number", "pitch_number", "catcher", "batter",
                     ))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                try:
                     play_id = str(UUID(pitch["play_id"]))
                 except (KeyError, TypeError, ValueError, AttributeError):
-                    continue
-                videos.setdefault(key, set()).add(play_id)
-    return {key: ids.pop() for key, ids in videos.items() if len(ids) == 1}
+                    play_id = None
+                candidates = pitches.setdefault(key, {})
+                candidates[play_id] = (pitch.get("pitcher_name"), pitch.get("batter_name"))
+    result = {}
+    for key, candidates in pitches.items():
+        clips = [play_id for play_id in candidates if play_id]
+        play_id = clips[0] if len(clips) == 1 else None
+        pitcher, hitter = candidates.get(play_id) or next(iter(candidates.values()))
+        result[key] = (play_id, pitcher, hitter)
+    return result
+
+
+def savant_game_videos(game_id):
+    return {
+        key: play_id
+        for key, (play_id, _, _) in savant_game_pitches(game_id).items()
+        if play_id
+    }
 
 
 def available_videos(game_id):
@@ -239,7 +257,7 @@ def show_sl_plus_leaderboard(season):
                     f'<h3>{name}</h3>'
                     f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
                     f' · {row["expected"]:,.1f} Expected</span>'
-                    f'<span>{row["slaa"]:+.2f} SLAA · {row["framing_runs"]:+.2f} Framing Runs Above Average</span></div>'
+                    f'<span>{row["slaa"]:+.2f} jcSLAA · {row["framing_runs"]:+.2f} jcFRAA</span></div>'
                     f'<div class="sl-score-pair">'
                     f'<div class="sl-rank-score"><span>Filtered jcSL+</span><strong>{row["sl_plus"]:.2f}</strong></div>'
                     f'<div class="sl-rank-overall"><span>Overall jcSL+</span><strong>{overall:.2f}</strong></div>'

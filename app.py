@@ -10,6 +10,7 @@ from pathlib import Path
 
 from catcher_profiles import show_catcher_profile
 from sl_plus_leaderboard import show_sl_plus_leaderboard
+from framing_video_review import show_framing_review
 
 st.set_page_config(
     page_title="Catcher Lab",
@@ -29,7 +30,6 @@ st.html(
 )
 
 DATASETS = {
-    "Receiving": "catcher-framing",
     "Blocking": "catcher-blocking",
     "Throwing": "catcher-throwing",
     "Pop Time": "poptime"
@@ -92,14 +92,15 @@ def show_results(df, identity_columns, filename, widget_key):
 
 
 def show_leaderboard(season):
-    category = st.sidebar.radio("Category", list(DATASETS))
+    category = st.sidebar.radio("Category", ["Receiving", *DATASETS])
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
-    if category == "Receiving" and season == 2026:
-        metric = st.sidebar.radio("Receiving metric", ["Savant framing", "jcSL+"])
-        if metric == "jcSL+":
+    if category == "Receiving":
+        if season == 2026:
             show_sl_plus(search)
-            return
+        else:
+            st.info("Catcher Lab receiving scores are available for the 2026 regular season.")
+        return
 
     with st.spinner("Loading Statcast data..."):
         df = load_data(category, season)
@@ -152,8 +153,8 @@ def show_sl_plus(search):
             "uses the initial umpire call before an ABS overturn and excludes catcher identity."
         )
         st.write(
-            "SLAA adds actual minus expected called strikes across pitches. "
-            "Framing Runs Above Average weights that difference by the value of changing "
+            "jcSLAA (Strikes Looking Above Average) adds actual minus expected called strikes across pitches. "
+            "jcFRAA (Framing Runs Above Average) weights that difference by the value of changing "
             "a ball to a strike for the pre-pitch runners, outs, and count. "
             "Run weights use the difference between Savant’s median run-expectancy changes "
             "for balls and called strikes, with sparse states pulled toward their count average."
@@ -173,18 +174,39 @@ def show_sl_plus(search):
     df = df.loc[df["eligible_takes"].ge(minimum)]
     if search:
         df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
-    df = df.sort_values("SL+", ascending=False).rename(
-        columns={
-            "player": "Catcher",
-            "SL+": "jcSL+",
-            "catcher_id": "MLB player ID",
-            "called_strikes": "Called strikes",
-            "expected_strikes": "Expected strikes",
-            "eligible_takes": "Eligible takes",
-        }
+    df = df.sort_values("SL+", ascending=False)
+    columns = {
+        "player": "Player",
+        "eligible_takes": "Total Pitches",
+        "SL+": "jcSL+",
+        "SLAA": "jcSLAA",
+        "Framing Runs Above Average": "jcFRAA",
+    }
+    results = df[list(columns)].rename(columns=columns)
+    st.caption(
+        "Total Pitches counts decisive called balls and called strikes. "
+        "Click any number to review pitches with 5%–95% called-strike probability."
     )
-    df = df.round({"jcSL+": 2, "Expected strikes": 2, "SLAA": 2, "Framing Runs Above Average": 2})
-    show_results(df, ["Catcher"], "catcher_sl_plus_2026.csv", "sl_plus_columns")
+    event = st.dataframe(
+        results, hide_index=True, selection_mode="single-cell", on_select="rerun",
+        key=f"framing_table_{st.session_state.get('framing_review_version', 0)}_{minimum}_{search}",
+        column_config={
+            "Total Pitches": st.column_config.NumberColumn(
+                format="localized", help="Decisive called balls and called strikes"
+            ),
+            **{metric: st.column_config.NumberColumn(format="%.2f")
+               for metric in ("jcSL+", "jcSLAA", "jcFRAA")},
+        },
+    )
+    if event.selection.cells:
+        position, column = event.selection.cells[0]
+        if column != "Player" and position < len(df):
+            row = df.iloc[position]
+            show_framing_review(int(row["catcher_id"]), row["player"], column)
+    st.download_button(
+        "Download CSV", results.round(2).to_csv(index=False),
+        file_name="catcher_framing_2026.csv", mime="text/csv",
+    )
 
 
 PITCH_COLUMNS = {

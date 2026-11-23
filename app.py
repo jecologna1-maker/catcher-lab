@@ -19,8 +19,10 @@ st.html(Path(__file__).with_name("catcher_lab.css"))
 st.html(
     '<header class="catcher-brand" aria-label="Catcher Lab">'
     '<span class="catcher-brand__mark" aria-hidden="true">JC</span>'
-    '<span class="catcher-brand__name">COLOGNA CATCHING DEVELOPMENT</span>'
-    '<span class="catcher-brand__product">Catcher Lab · MLB analytics</span>'
+    '<div class="catcher-brand__identity">'
+    '<span class="catcher-brand__name">Cologna Catching Development</span>'
+    '<h1>Catcher Lab</h1></div>'
+    '<span class="catcher-brand__product">MLB Catching Analytics</span>'
     '</header>'
 )
 
@@ -244,7 +246,10 @@ st.sidebar.header("Filters")
 season = st.sidebar.selectbox("Season", list(range(2026, 2017, -1)), index=0)
 views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "SL+ Leaderboard"]
 default_view = "SL+ Leaderboard" if st.query_params.get("view") == "sl-plus" else "Leaderboards"
-view = st.sidebar.radio("View", views, index=views.index(default_view))
+view = st.radio(
+    "View", views, index=views.index(default_view), horizontal=True,
+    label_visibility="collapsed", key="catcher_nav",
+)
 
 try:
     if view == "Leaderboards":

@@ -158,24 +158,51 @@ def show_clip_reel(clips, catcher):
     st.link_button("Open on Baseball Savant", savant_clip_url(selected), width="stretch")
 
 
+def reset_filters():
+    for key in ("sl_family", "sl_location", "sl_pitcher", "sl_hitter", "sl_base"):
+        st.session_state[key] = []
+    st.session_state["sl_min"] = 50
+
+
 def show_sl_plus_leaderboard(season):
     st.header("SL+ Leaderboard")
     if season != 2026:
         st.info("Interactive SL+ rankings are available for the 2026 regular season.")
         return
 
-    st.caption("Tap filters to combine them. An empty row includes all options.")
     with st.container(border=True, key="sl_filter_panel"):
-        families = st.pills(
-            "Pitch Group", list(PITCH_FAMILIES)[1:], selection_mode="multi", format_func=str.title,
-        )
-        locations = st.pills(
-            "Pitch Location", LOCATIONS[1:], selection_mode="multi", format_func=str.title,
-        )
-        pitchers = st.pills("Pitcher Handedness", list(HANDEDNESS), selection_mode="multi")
-        hitters = st.pills("Hitter Handedness", list(HANDEDNESS), selection_mode="multi")
-        base_states = st.pills("Base State", list(BASE_STATES), selection_mode="multi")
-        minimum = st.number_input("Minimum Eligible Takes", min_value=1, value=50, step=10)
+        st.subheader("Filters")
+        st.caption("Choose any combination. An empty group includes all options.")
+        first, second = st.columns(2)
+        with first:
+            families = st.pills(
+                "Pitch Group", list(PITCH_FAMILIES)[1:], selection_mode="multi",
+                format_func=str.title, key="sl_family",
+            )
+        with second:
+            locations = st.pills(
+                "Pitch Location", LOCATIONS[1:], selection_mode="multi",
+                format_func=str.title, key="sl_location",
+            )
+        first, second = st.columns(2)
+        with first:
+            pitchers = st.pills(
+                "Pitcher Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_pitcher",
+            )
+        with second:
+            hitters = st.pills(
+                "Hitter Handedness", list(HANDEDNESS), selection_mode="multi", key="sl_hitter",
+            )
+        first, second = st.columns(2)
+        with first:
+            base_states = st.pills(
+                "Base State", list(BASE_STATES), selection_mode="multi", key="sl_base",
+            )
+        with second:
+            minimum = st.number_input(
+                "Minimum Eligible Takes", min_value=1, value=50, step=10, key="sl_min",
+            )
+        st.button("Reset Filters", on_click=reset_filters, key="sl_reset")
 
     ranking = st.radio("Ranking", ["Top 5", "Bottom 5"], horizontal=True, key="sl_ranking")
     bottom = ranking == "Bottom 5"
@@ -199,9 +226,10 @@ def show_sl_plus_leaderboard(season):
             )
             st.html(
                 f'<div class="sl-ranked-row">'
+                f'<span class="sl-rank-position" aria-label="Rank {position}">{position:02d}</span>'
                 f'<img class="sl-player-photo" src="{photo}" alt="" width="46" height="46" loading="lazy">'
                 f'<div class="sl-ranked-player">'
-                f'<h3>{position}. {name}</h3>'
+                f'<h3>{name}</h3>'
                 f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
                 f' · {row["expected"]:,.1f} Expected</span></div>'
                 f'<div class="sl-score-pair">'

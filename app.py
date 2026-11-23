@@ -187,15 +187,25 @@ def show_sl_plus(search):
         "Total Pitches counts decisive called balls and called strikes. "
         "Click any number to review pitches with 5%–95% called-strike probability."
     )
+    # Streamlit's canvas table supports Styler colors but ignores CSS text-decoration.
+    # Apply the underline to the display text while keeping the underlying cells numeric.
+    def underlined_number(value, number_format):
+        return "".join(f"{character}\u0332" for character in format(value, number_format))
+
+    metric_columns = ["Total Pitches", "jcSL+", "jcSLAA", "jcFRAA"]
+    styled_results = results.style.set_properties(
+        subset=metric_columns, color="#6b35a1"
+    ).format({
+        "Total Pitches": lambda value: underlined_number(value, ",d"),
+        **{metric: lambda value: underlined_number(value, ".2f") for metric in metric_columns[1:]},
+    })
     event = st.dataframe(
-        results, hide_index=True, selection_mode="single-cell", on_select="rerun",
+        styled_results, hide_index=True, selection_mode="single-cell", on_select="rerun",
         key=f"framing_table_{st.session_state.get('framing_review_version', 0)}_{minimum}_{search}",
         column_config={
             "Total Pitches": st.column_config.NumberColumn(
-                format="localized", help="Decisive called balls and called strikes"
+                help="Decisive called balls and called strikes"
             ),
-            **{metric: st.column_config.NumberColumn(format="%.2f")
-               for metric in ("jcSL+", "jcSLAA", "jcFRAA")},
         },
     )
     if event.selection.cells:

@@ -21,7 +21,8 @@ TAKES_AND_MISSES = {
     "ball", "blocked_ball", "called_strike", "swinging_strike",
     "swinging_strike_blocked", "missed_bunt",
 }
-MISSES = {"swinging_strike", "swinging_strike_blocked", "missed_bunt", "called_strike"}
+SWINGING_STRIKES = {"swinging_strike", "swinging_strike_blocked"}
+THIRD_STRIKES = {*SWINGING_STRIKES, "missed_bunt", "called_strike"}
 MISPLAYS = {"wild_pitch", "passed_ball"}
 FIELDS = [
     *KEY, "game_type", "game_date", "fielder_2", "description", "plate_x",
@@ -112,12 +113,13 @@ def dirt_opportunities(raw, misplays):
     eligible = raw.loc[raw["description"].isin(TAKES_AND_MISSES)].copy()
     eligible["cutoff_height"] = cutoff_height(eligible)
     eligible["batter_can_reach"] = (
-        eligible["strikes"].eq(2) & eligible["description"].isin(MISSES)
+        eligible["strikes"].eq(2) & eligible["description"].isin(THIRD_STRIKES)
         & (eligible["on_1b"].isna() | eligible["outs_when_up"].eq(2))
     )
     runners_on = eligible[["on_1b", "on_2b", "on_3b"]].notna().any(axis=1)
+    swinging_third_strike = eligible["strikes"].eq(2) & eligible["description"].isin(SWINGING_STRIKES)
     eligible = eligible.loc[
-        (runners_on | eligible["batter_can_reach"])
+        (runners_on | swinging_third_strike)
         & eligible["fielder_2"].notna() & eligible["plate_x"].notna()
         & eligible["vy0"].lt(0) & np.isfinite(eligible["cutoff_height"])
         & eligible["cutoff_height"].le(BALL_RADIUS)

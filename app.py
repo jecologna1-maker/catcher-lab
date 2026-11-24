@@ -108,8 +108,8 @@ def show_blocking(season, search):
         return
 
     st.caption(
-        "Tracked pitches projected to touch dirt by the back edge of the batter’s box, "
-        "with a runner on base or a chance for the batter to reach on an uncaught third strike."
+        "Tracked pitches projected to touch dirt by the back edge of the batter’s box. "
+        "A pitch qualifies with any runner on base, or with the bases empty on a two-strike swing-and-miss."
     )
     with st.expander("How blocking is calculated"):
         st.write(

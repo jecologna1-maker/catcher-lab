@@ -356,3 +356,47 @@
     .st-key-sl_report .sl-rank-overall { width: 4.75rem; }
     .st-key-sl_report [data-testid="stExpander"] summary { min-height: 2.75rem; }
 }
+
+/* Pitch review */
+[data-testid="stDialog"] [role="dialog"]:has(.st-key-pitch_review_workspace) {
+    width: min(1120px, 96vw);
+    max-width: 96vw;
+}
+.st-key-pitch_review_video,
+.st-key-pitch_review_location,
+.st-key-pitch_review_queue {
+    border-color: #ded2e6;
+    background: #fff;
+}
+.st-key-pitch_review_video { border-top: 3px solid #503363; }
+.st-key-pitch_review_location { border-top: 3px solid #d8b64c; }
+.st-key-pitch_review_queue { background: #f7f3f9; }
+.st-key-pitch_review_video video {
+    display: block;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    border-radius: .45rem;
+    background: #201929;
+}
+.pitch-review-position {
+    text-align: center;
+    color: #503363;
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.pitch-review-facts {
+    padding: .55rem .65rem;
+    background: #f6f0fa;
+    border-radius: .4rem;
+}
+@media (max-width: 680px) {
+    .st-key-pitch_review_workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap;
+    }
+    .st-key-pitch_review_workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex: 1 0 100%;
+        min-width: 0;
+    }
+}

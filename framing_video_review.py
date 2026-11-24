@@ -197,23 +197,35 @@ def show_pitch_review(pitches, catcher, metric, season, *, blocking, actual_only
     def move_pitch(offset):
         st.session_state[pitch_widget] += offset
 
-    selected = st.selectbox(
-        f"Pitch ({len(pitches):,} available)", range(len(pitches)), format_func=pitch_label,
-        key=pitch_widget,
-    )
-    previous, following = st.columns(2)
-    previous.button("Previous Pitch", on_click=move_pitch, args=(-1,), disabled=selected == 0,
-                    key=f"{namespace}_previous")
-    following.button("Next Pitch", on_click=move_pitch, args=(1,), disabled=selected == len(pitches) - 1,
-                     key=f"{namespace}_next")
+    stage = st.container(key="pitch_review_workspace", gap="small")
+    with st.container(border=True, key="pitch_review_queue", gap="small"):
+        st.markdown("**Pitch Queue**")
+        selected = st.selectbox(
+            f"Pitch ({len(pitches):,} available)", range(len(pitches)), format_func=pitch_label,
+            key=pitch_widget, label_visibility="collapsed",
+        )
     pitch = pitches.iloc[selected]
     game, *key = (int(pitch[field]) for field in KEY_FIELDS)
     try:
         play_id, pitcher, hitter = savant_game_pitches(game).get(tuple(key), (None, None, None))
     except (requests.RequestException, KeyError, ValueError, TypeError):
         play_id, pitcher, hitter = None, None, None
-    video, details = st.columns([2, 1])
-    with video:
+    with stage:
+        video, details = st.columns([2.35, 1], gap="small")
+    with video.container(border=True, key="pitch_review_video", gap="small"):
+        st.markdown("**Pitch Video**")
+        previous, position, following = st.columns([1, 1, 1], gap="small", vertical_alignment="center")
+        previous.button(
+            "← Previous Pitch", on_click=move_pitch, args=(-1,), disabled=selected == 0,
+            key=f"{namespace}_previous", width="stretch",
+        )
+        position.html(
+            f'<div class="pitch-review-position">{selected + 1:,} / {len(pitches):,}</div>'
+        )
+        following.button(
+            "Next Pitch →", on_click=move_pitch, args=(1,), disabled=selected == len(pitches) - 1,
+            key=f"{namespace}_next", width="stretch",
+        )
         source = None
         if play_id:
             try:
@@ -226,13 +238,14 @@ def show_pitch_review(pitches, catcher, metric, season, *, blocking, actual_only
             st.info("An embedded Savant video is unavailable for this pitch.")
         if play_id:
             st.link_button("Open on Baseball Savant", savant_clip_url(play_id))
-    with details:
+    with details.container(border=True, key="pitch_review_location", gap="small"):
+        st.markdown("**Pitch Location**")
         outcome = bool(pitch[outcome_column])
         call = outcome_labels[outcome]
         pitcher_name = escape(pitcher or "Unavailable")
         hitter_name = escape(hitter or f"MLB ID {pitch.batter}")
         st.html(
-            '<div style="font-size:.82rem;line-height:1.4">'
+            '<div class="pitch-review-facts" style="font-size:.82rem;line-height:1.4">'
             f'<strong>{escape(call)} · {escape(str(pitch.pitch_name))}</strong><br>'
             f'{pitch.game_date} · Count {pitch.balls}-{pitch.strikes}<br>'
             f'Pitcher {pitcher_name} · Hitter {hitter_name}<br>'

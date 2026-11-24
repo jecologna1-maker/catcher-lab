@@ -109,14 +109,14 @@ def show_dirt_blocking(season, search):
         return
 
     st.caption(
-        "Tracked pitches projected to touch dirt by the front of home plate, with a runner "
-        "on base or a chance for the batter to reach on an uncaught third strike."
+        "Tracked pitches projected to touch dirt by six inches behind the back of the batter’s box, "
+        "with a runner on base or a chance for the batter to reach on an uncaught third strike."
     )
     with st.expander("How Dirt Blocking is calculated"):
         st.write(
             "The pitch trajectory estimates where the ball would touch the ground. "
             "The model estimates the chance of a scored wild pitch or passed ball from "
-            "location, depth below ground at the plate, speed, movement, handedness, "
+            "location, projected depth below ground at the cutoff, speed, movement, handedness, "
             "and the runner and out situation. Catcher identity is excluded, and "
             "each game is scored using a model trained on other games."
         )

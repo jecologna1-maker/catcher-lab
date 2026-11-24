@@ -15,6 +15,8 @@ from build_sl_plus import KEY, SEASON_GAMES, names_for
 from called_strike_model import fit_logistic, sigmoid
 
 BALL_RADIUS = 1.45 / 12
+# The six-foot box is centered at the midpoint of the plate (OBR Appendix 2).
+CUTOFF_BEHIND_MID_PLATE_FT = 3 + 6 / 12
 TAKES_AND_MISSES = {
     "ball", "blocked_ball", "called_strike", "swinging_strike",
     "swinging_strike_blocked", "missed_bunt",
@@ -48,8 +50,8 @@ def official_misplays(path):
                 yield int(path.stem), event_index, pitch_number
 
 
-def front_height(pitches):
-    """Back-project 2026 mid-plate tracking coordinates to the front edge."""
+def cutoff_height(pitches):
+    """Project 2026 mid-plate tracking coordinates to the dirt cutoff."""
     vy, vz, ay, az = (pitches[field].to_numpy() for field in ("vy0", "vz0", "ay", "az"))
 
     def time_at(distance):
@@ -57,13 +59,13 @@ def front_height(pitches):
             return 2 * distance / (-vy + np.sqrt(vy**2 - 2 * ay * distance))
 
     middle = time_at(50 - 17 / 24)
-    front = time_at(50 - 17 / 12)
-    return pitches["plate_z"] + (front - middle) * (vz + az * (front + middle) / 2)
+    cutoff = time_at(50 - 17 / 24 + CUTOFF_BEHIND_MID_PLATE_FT)
+    return pitches["plate_z"] + (cutoff - middle) * (vz + az * (cutoff + middle) / 2)
 
 
 def model_inputs(pitches):
     x = pitches["plate_x"].clip(-4, 4).to_numpy()
-    depth = np.clip(BALL_RADIUS - pitches["front_height"].to_numpy(), 0, 3)
+    depth = np.clip(BALL_RADIUS - pitches["cutoff_height"].to_numpy(), 0, 3)
     speed = (pitches["release_speed"].fillna(85).to_numpy() - 85) / 10
     horizontal = pitches["pfx_x"].fillna(0).clip(-3, 3).to_numpy()
     vertical = pitches["pfx_z"].fillna(0).clip(-3, 3).to_numpy()
@@ -107,7 +109,7 @@ def cross_fit(pitches):
 
 def dirt_opportunities(raw, misplays):
     eligible = raw.loc[raw["description"].isin(TAKES_AND_MISSES)].copy()
-    eligible["front_height"] = front_height(eligible)
+    eligible["cutoff_height"] = cutoff_height(eligible)
     eligible["batter_can_reach"] = (
         eligible["strikes"].eq(2) & eligible["description"].isin(MISSES)
         & (eligible["on_1b"].isna() | eligible["outs_when_up"].eq(2))
@@ -116,8 +118,8 @@ def dirt_opportunities(raw, misplays):
     eligible = eligible.loc[
         (runners_on | eligible["batter_can_reach"])
         & eligible["fielder_2"].notna() & eligible["plate_x"].notna()
-        & eligible["vy0"].lt(0) & np.isfinite(eligible["front_height"])
-        & eligible["front_height"].le(BALL_RADIUS)
+        & eligible["vy0"].lt(0) & np.isfinite(eligible["cutoff_height"])
+        & eligible["cutoff_height"].le(BALL_RADIUS)
     ].copy()
     eligible["misplay"] = pd.MultiIndex.from_frame(eligible[KEY]).isin(misplays)
     return eligible
@@ -157,7 +159,13 @@ def main():
         expected_misplays=("expected_misplays", "sum"),
     )
     summaries.index.name = "catcher_id"
-    summaries["player"] = summaries.index.map(names_for(summaries.index))
+    # Use the existing season roster so a rebuild can run from cached data.
+    roster_path = Path(__file__).with_name("sl_plus_2026.csv")
+    known_names = pd.read_csv(roster_path).set_index("catcher_id")["player"].to_dict()
+    missing = summaries.index.difference(known_names)
+    if len(missing):
+        known_names.update(names_for(missing))
+    summaries["player"] = summaries.index.map(known_names)
     summaries["blocks_above_average"] = summaries["expected_misplays"] - summaries["actual_misplays"]
     summaries.to_csv(Path(__file__).with_name("dirt_blocking_2026.csv"), float_format="%.6f")
 

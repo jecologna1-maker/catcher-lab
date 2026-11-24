@@ -8,7 +8,10 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from catcher_profiles import HALF_PLATE, LOCATIONS, PITCH_FAMILIES, home_plate_path, profile_data
+from catcher_profiles import (
+    FIFTY_FIFTY_RATE, HALF_PLATE, LOCATIONS, PITCH_FAMILIES,
+    fifty_fifty_mask, home_plate_path, profile_data,
+)
 from sl_plus_leaderboard import (
     BASE_STATES, HANDEDNESS, KEY_FIELDS, filter_pitches, load_video_source,
     savant_clip_url, savant_game_pitches,
@@ -103,8 +106,13 @@ def pitch_location_diagram(pitch, *, favorable=None):
 @st.dialog("Framing Pitch Review", width="large", on_dismiss=reset_framing_review)
 def show_framing_review(catcher, player, metric, season=2026):
     st.subheader(player)
-    st.caption(f"{metric} · 5%–95% called-strike probability · Newest games first")
-    show_pitch_review(review_pitches(catcher, season), catcher, metric, season, blocking=False)
+    pitches = review_pitches(catcher, season)
+    band = "5%–95%"
+    if metric == FIFTY_FIFTY_RATE:
+        pitches = pitches.loc[fifty_fifty_mask(pitches["expected"])]
+        band = "25% to under 75%"
+    st.caption(f"{metric} · {band} called-strike probability · Newest games first")
+    show_pitch_review(pitches, catcher, metric, season, blocking=False)
 
 
 @st.dialog("Blocking Pitch Review", width="large", on_dismiss=reset_framing_review)

@@ -49,6 +49,24 @@ def pitch_location_mask(pitches, location):
     return middle & (horizontal.gt(0) if location == "Arm side" else horizontal.lt(0))
 
 
+FIFTY_FIFTY_RATE = "50/50 Strike Rate"
+
+
+def fifty_fifty_mask(probability):
+    return probability.between(0.25, 0.75, inclusive="left")
+
+
+@st.cache_data(max_entries=7)
+def fifty_fifty_counts(season, data_version):
+    pitches = pd.read_parquet(
+        Path(__file__).with_name(f"catcher_pitches_{season}.parquet"),
+        columns=["fielder_2", "expected", "called"],
+    )
+    return pitches.loc[fifty_fifty_mask(pitches["expected"])].groupby("fielder_2")["called"].agg(
+        fifty_fifty_strikes="sum", fifty_fifty_takes="size",
+    )
+
+
 def has_receiving_data(season):
     folder = Path(__file__).parent
     return all((folder / name).is_file() for name in (

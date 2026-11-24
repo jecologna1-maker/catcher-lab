@@ -9,7 +9,9 @@ from io import StringIO
 from pathlib import Path
 from streamlit.components.v1 import declare_component
 
-from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
+from catcher_profiles import (
+    FIFTY_FIFTY_RATE, catcher_profile_url, fifty_fifty_counts, has_receiving_data, show_catcher_profile,
+)
 from sl_plus_leaderboard import show_sl_plus_leaderboard
 from framing_video_review import show_blocking_review, show_framing_review
 
@@ -241,6 +243,14 @@ def show_sl_plus(search, season):
     )
     df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
     df = df.loc[df["eligible_takes"].ge(minimum)]
+    data_file = Path(__file__).with_name(f"catcher_pitches_{season}.parquet")
+    counts = fifty_fifty_counts(season, data_file.stat().st_mtime_ns)
+    df = df.join(counts, on="catcher_id")
+    count_columns = ["fifty_fifty_strikes", "fifty_fifty_takes"]
+    df[count_columns] = df[count_columns].fillna(0)
+    df["fifty_fifty_rate"] = 100 * df["fifty_fifty_strikes"] / df["fifty_fifty_takes"].where(
+        df["fifty_fifty_takes"].gt(0)
+    )
     qualified = df
     if search:
         df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
@@ -249,12 +259,14 @@ def show_sl_plus(search, season):
         "player": "Player",
         "eligible_takes": "Total Pitches",
         "SL+": "jcSL+",
+        "fifty_fifty_rate": FIFTY_FIFTY_RATE,
         "SLAA": "jcSLAA",
         "Framing Runs Above Average": "jcFRAA",
     }
     st.caption(
         "Select a player for their profile or a number for pitch video and location "
-        "on takes with 5%–95% called-strike probability."
+        "on takes with 5%–95% called-strike probability. 50/50 Strike Rate uses takes with "
+        "25% to under 75% predicted called-strike probability."
     )
     show_catcher_table(
         df, qualified, columns, season, minimum, search, category="Receiving",
@@ -269,22 +281,27 @@ def show_catcher_table(df, qualified, columns, season, minimum, search, *, categ
         else ["blocks", "expected_blocks"]
     )
     rate_totals = df[rate_columns].to_numpy().tolist()
+    band_totals = (
+        df[["fifty_fifty_strikes", "fifty_fifty_takes"]].to_numpy().tolist()
+        if category == "Receiving" else [None] * len(df)
+    )
     rows = [
         {
             "id": int(catcher),
             "profile": catcher_profile_url(season, catcher),
-            "values": list(values),
+            "values": [value if pd.notna(value) else None for value in values],
+            "bandTotals": band,
             "strikeTotals": totals if category == "Receiving" else None,
             "blockTotals": totals if category == "Blocking" else None,
         }
-        for catcher, values, totals in zip(
-            df["catcher_id"], results.itertuples(index=False, name=None), rate_totals,
+        for catcher, values, totals, band in zip(
+            df["catcher_id"], results.itertuples(index=False, name=None), rate_totals, band_totals,
         )
     ]
     summary = qualified[list(columns)[1:]]
     benchmarks = None if summary.empty else {
-        "mean": [None, *summary.mean().tolist()],
-        "percentile": [None, *summary.quantile(0.9).tolist()],
+        "mean": [None, *[float(v) if pd.notna(v) else None for v in summary.mean()]],
+        "percentile": [None, *[float(v) if pd.notna(v) else None for v in summary.quantile(0.9)]],
     }
     event = receiving_table(
         rows=rows, headers=list(results.columns), benchmarks=benchmarks, default=None,

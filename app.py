@@ -146,7 +146,7 @@ def show_blocking(season, search):
     }
     frame = frame.sort_values("block_plus", ascending=False)
     st.caption(
-        "Select a player for their profile or a number for pitch video, lowest WP/PB "
+        "Select a player for their profile or a number for pitch video and location, lowest WP/PB "
         "probability first. Missed Blocks opens only scored wild pitches and passed balls."
     )
     show_catcher_table(
@@ -253,8 +253,8 @@ def show_sl_plus(search, season):
         "Framing Runs Above Average": "jcFRAA",
     }
     st.caption(
-        "Select a player for their profile or a number to review pitches "
-        "with 5%–95% called-strike probability."
+        "Select a player for their profile or a number for pitch video and location "
+        "on takes with 5%–95% called-strike probability."
     )
     show_catcher_table(
         df, qualified, columns, season, minimum, search, category="Receiving",

@@ -120,31 +120,38 @@ def show_blocking(season, search):
             "each game is scored using a model trained on other games."
         )
         st.write(
-            "Blocks Above Average equals expected minus actual wild pitches and passed balls. "
+            "Block+ is 100 × actual blocks ÷ expected blocks. A score of 100 means the catcher "
+            "blocked as many pitches as expected. Missed Blocks counts scored wild pitches and "
+            "passed balls, and xMissed Blocks adds up their predicted probabilities. "
+            "Blocks Above Average is xMissed Blocks minus Missed Blocks. "
             "A score of +5 means five fewer scored misplays than expected given the pitches received. "
             "A pitch without a scored misplay can still have bounced away without anyone advancing."
         )
-    minimum = st.sidebar.number_input("Minimum Dirt Opportunities", min_value=0, value=50, step=10)
+    minimum = st.sidebar.number_input("Minimum Block Opportunities", min_value=0, value=50, step=10)
     frame = pd.read_csv(Path(__file__).with_name(f"dirt_blocking_{season}.csv"))
-    frame = frame.loc[frame["opportunities"].ge(minimum)]
+    frame = frame.loc[frame["opportunities"].ge(minimum)].copy()
+    frame["blocks"] = frame["opportunities"] - frame["actual_misplays"]
+    frame["expected_blocks"] = frame["opportunities"] - frame["expected_misplays"]
+    frame["block_plus"] = 100 * frame["blocks"] / frame["expected_blocks"]
     qualified = frame
     if search:
         frame = frame.loc[frame["player"].str.contains(search, case=False, regex=False, na=False)]
     columns = {
         "player": "Player",
-        "opportunities": "Dirt Opportunities",
+        "opportunities": "Block Opportunities",
+        "block_plus": "Block+",
         "blocks_above_average": "Blocks Above Average",
-        "actual_misplays": "Actual WP + PB",
-        "expected_misplays": "Expected WP + PB",
+        "actual_misplays": "Missed Blocks",
+        "expected_misplays": "xMissed Blocks",
     }
-    frame = frame.sort_values("blocks_above_average", ascending=False)
+    frame = frame.sort_values("block_plus", ascending=False)
     st.caption(
         "Select a player for their profile or a number for pitch video, lowest WP/PB "
-        "probability first. Actual WP + PB opens only scored wild pitches and passed balls."
+        "probability first. Missed Blocks opens only scored wild pitches and passed balls."
     )
     show_catcher_table(
         frame, qualified, columns, season, minimum, search, category="Blocking",
-        integer_columns=["Dirt Opportunities", "Actual WP + PB"], review=show_blocking_review,
+        integer_columns=["Block Opportunities", "Missed Blocks"], review=show_blocking_review,
     )
 
 
@@ -257,18 +264,21 @@ def show_sl_plus(search, season):
 
 def show_catcher_table(df, qualified, columns, season, minimum, search, *, category, integer_columns, review):
     results = df[list(columns)].rename(columns=columns)
-    strike_totals = [None] * len(df)
-    if category == "Receiving":
-        strike_totals = df[["called_strikes", "expected_strikes"]].to_numpy().tolist()
+    rate_columns = (
+        ["called_strikes", "expected_strikes"] if category == "Receiving"
+        else ["blocks", "expected_blocks"]
+    )
+    rate_totals = df[rate_columns].to_numpy().tolist()
     rows = [
         {
             "id": int(catcher),
             "profile": catcher_profile_url(season, catcher),
             "values": list(values),
-            "strikeTotals": totals,
+            "strikeTotals": totals if category == "Receiving" else None,
+            "blockTotals": totals if category == "Blocking" else None,
         }
         for catcher, values, totals in zip(
-            df["catcher_id"], results.itertuples(index=False, name=None), strike_totals,
+            df["catcher_id"], results.itertuples(index=False, name=None), rate_totals,
         )
     ]
     summary = qualified[list(columns)[1:]]

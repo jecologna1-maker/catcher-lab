@@ -95,7 +95,7 @@ def show_framing_review(catcher, player, metric, season=2026):
 @st.dialog("Blocking Pitch Review", width="large", on_dismiss=reset_framing_review)
 def show_blocking_review(catcher, player, metric, season):
     st.subheader(player)
-    actual_only = metric == "Actual WP + PB"
+    actual_only = metric == "Missed Blocks"
     pitches = blocking_review_pitches(catcher, season, actual_only=actual_only)
     st.caption(f"{metric} · {len(pitches):,} pitches · Lowest WP/PB probability first")
     if actual_only and pitches.empty:

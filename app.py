@@ -9,9 +9,8 @@ from io import StringIO
 from pathlib import Path
 from streamlit.components.v1 import declare_component
 
-from catcher_profiles import (
-    FIFTY_FIFTY_RATE, catcher_profile_url, fifty_fifty_counts, has_receiving_data, show_catcher_profile,
-)
+from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
+from receiving_bands import RECEIVING_BANDS, receiving_band_totals
 from sl_plus_leaderboard import show_sl_plus_leaderboard
 from framing_video_review import show_blocking_review, show_framing_review
 
@@ -244,13 +243,10 @@ def show_sl_plus(search, season):
     df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
     df = df.loc[df["eligible_takes"].ge(minimum)]
     data_file = Path(__file__).with_name(f"catcher_pitches_{season}.parquet")
-    counts = fifty_fifty_counts(season, data_file.stat().st_mtime_ns)
-    df = df.join(counts, on="catcher_id")
-    count_columns = ["fifty_fifty_strikes", "fifty_fifty_takes"]
-    df[count_columns] = df[count_columns].fillna(0)
-    df["fifty_fifty_rate"] = 100 * df["fifty_fifty_strikes"] / df["fifty_fifty_takes"].where(
-        df["fifty_fifty_takes"].gt(0)
-    )
+    bands = receiving_band_totals(season, data_file.stat().st_mtime_ns)
+    for metric, totals in bands.items():
+        totals = totals.reindex(df["catcher_id"])
+        df[metric] = (100 * totals["actual"] / totals["denominator"]).to_numpy()
     qualified = df
     if search:
         df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
@@ -259,44 +255,44 @@ def show_sl_plus(search, season):
         "player": "Player",
         "eligible_takes": "Total Pitches",
         "SL+": "jcSL+",
-        "fifty_fifty_rate": FIFTY_FIFTY_RATE,
+        **{metric: metric for metric in RECEIVING_BANDS},
         "SLAA": "jcSLAA",
         "Framing Runs Above Average": "jcFRAA",
     }
     st.caption(
         "Select a player for their profile or a number for pitch video and location "
-        "on takes with 5%–95% called-strike probability. 50/50 Strike Rate uses takes with "
-        "25% to under 75% predicted called-strike probability."
+        "50/50% is the actual strike rate from 25% to under 75% predicted probability. "
+        "Win+ (75.1% and above) and Loss+ (24.9% and below) compare actual to expected strikes."
     )
     show_catcher_table(
         df, qualified, columns, season, minimum, search, category="Receiving",
-        integer_columns=["Total Pitches"], review=show_framing_review,
+        integer_columns=["Total Pitches"], review=show_framing_review, bands=bands,
     )
 
 
-def show_catcher_table(df, qualified, columns, season, minimum, search, *, category, integer_columns, review):
+def show_catcher_table(df, qualified, columns, season, minimum, search, *, category, integer_columns, review, bands=None):
     results = df[list(columns)].rename(columns=columns)
     rate_columns = (
         ["called_strikes", "expected_strikes"] if category == "Receiving"
         else ["blocks", "expected_blocks"]
     )
     rate_totals = df[rate_columns].to_numpy().tolist()
-    band_totals = (
-        df[["fifty_fifty_strikes", "fifty_fifty_takes"]].to_numpy().tolist()
-        if category == "Receiving" else [None] * len(df)
-    )
+    band_totals = {
+        metric: table.reindex(df["catcher_id"]).fillna(0).to_numpy().tolist()
+        for metric, table in (bands or {}).items()
+    }
     rows = [
         {
             "id": int(catcher),
             "profile": catcher_profile_url(season, catcher),
             "values": [value if pd.notna(value) else None for value in values],
-            "bandTotals": band,
+            "bandTotalsByMetric": {metric: totals[position] for metric, totals in band_totals.items()},
             "strikeTotals": totals if category == "Receiving" else None,
             "blockTotals": totals if category == "Blocking" else None,
         }
-        for catcher, values, totals, band in zip(
-            df["catcher_id"], results.itertuples(index=False, name=None), rate_totals, band_totals,
-        )
+        for position, (catcher, values, totals) in enumerate(zip(
+            df["catcher_id"], results.itertuples(index=False, name=None), rate_totals,
+        ))
     ]
     summary = qualified[list(columns)[1:]]
     benchmarks = None if summary.empty else {

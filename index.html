@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Receiving Leaderboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px system-ui, sans-serif; color: #292331; }
+  .grid { max-height: 450px; overflow: auto; border: 1px solid #e6e0ea; border-radius: .45rem; }
+  table { width: 100%; border-spacing: 0; background: white; }
+  th, td { text-align: center; padding: 0; border-bottom: 1px solid #e6e0ea; }
+  th { position: sticky; top: 0; background: #eee8f1; z-index: 1; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: #faf7fb; }
+  button, a { display: block; width: 100%; padding: .55rem .4rem; font: inherit; }
+  button { border: 0; background: none; cursor: pointer; }
+  th button { color: inherit; font-weight: 650; }
+  td button, td a { color: #6b35a1; text-decoration: underline; text-underline-offset: .14em; }
+  td:not(:first-child) { font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: 2px solid #6b35a1; outline-offset: -2px; }
+  .empty { padding: 1rem; text-align: center; }
+  @media (max-width: 420px) {
+    body { font-size: 12px; }
+    button, a { padding-inline: .25rem; }
+  }
+</style>
+<div class="grid">
+  <table aria-label="Receiving Leaderboard">
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty" hidden>No catchers match these filters.</div>
+</div>
+<script>
+  const grid = document.querySelector(".grid");
+  const head = document.querySelector("thead");
+  const body = document.querySelector("tbody");
+  const empty = document.querySelector(".empty");
+  const formats = [null, new Intl.NumberFormat("en-US"),
+    new Intl.NumberFormat("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})];
+  let rows = [];
+  let headers = [];
+  let sort = 2;
+  let ascending = false;
+
+  function notify(type, payload = {}) {
+    window.parent.postMessage({isStreamlitMessage: true, type, ...payload}, "*");
+  }
+
+  function choose(row, column) {
+    notify("streamlit:setComponentValue", {
+      dataType: "json",
+      value: {catcher: row.id, column, click: Date.now()}
+    });
+  }
+
+  function render() {
+    head.replaceChildren();
+    body.replaceChildren();
+    const header = head.insertRow();
+    headers.forEach((name, index) => {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      if (index === sort) cell.setAttribute("aria-sort", ascending ? "ascending" : "descending");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = name;
+      button.addEventListener("click", () => {
+        ascending = sort === index ? !ascending : index === 0;
+        sort = index;
+        render();
+        head.querySelectorAll("button")[index].focus();
+      });
+      cell.append(button);
+      header.append(cell);
+    });
+    const ordered = [...rows].sort((left, right) => {
+      const a = left.values[sort];
+      const b = right.values[sort];
+      const comparison = sort === 0 ? a.localeCompare(b) : a - b;
+      return ascending ? comparison : -comparison;
+    });
+    for (const row of ordered) {
+      const tr = body.insertRow();
+      row.values.forEach((value, index) => {
+        const cell = tr.insertCell();
+        if (!index) {
+          const link = document.createElement("a");
+          link.href = row.profile;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = value;
+          link.addEventListener("click", event => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            choose(row, headers[index]);
+          });
+          cell.append(link);
+        } else {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = formats[Math.min(index, 2)].format(value);
+          button.setAttribute("aria-label", `${row.values[0]}, ${headers[index]} ${button.textContent}. Review pitches`);
+          button.addEventListener("click", () => choose(row, headers[index]));
+          cell.append(button);
+        }
+      });
+    }
+    empty.hidden = rows.length > 0;
+  }
+
+  window.addEventListener("message", event => {
+    if (event.source !== window.parent || event.data?.type !== "streamlit:render") return;
+    const args = event.data.args;
+    rows = args.rows;
+    headers = args.headers;
+    render();
+  });
+  new ResizeObserver(() => notify("streamlit:setFrameHeight", {height: grid.offsetHeight})).observe(grid);
+  notify("streamlit:componentReady", {apiVersion: 1});
+</script>
+</html>

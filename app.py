@@ -108,7 +108,7 @@ def show_blocking(season, search):
         return
 
     st.caption(
-        "Tracked pitches projected to touch dirt by six inches behind the back of the batter’s box, "
+        "Tracked pitches projected to touch dirt by the back edge of the batter’s box, "
         "with a runner on base or a chance for the batter to reach on an uncaught third strike."
     )
     with st.expander("How blocking is calculated"):
@@ -138,8 +138,8 @@ def show_blocking(season, search):
     }
     frame = frame.sort_values("blocks_above_average", ascending=False)
     st.caption(
-        "Select a player for their profile or a number to review their blocking pitches "
-        "from lowest to highest WP/PB probability."
+        "Select a player for their profile or a number for pitch video, lowest WP/PB "
+        "probability first. Actual WP + PB opens only scored wild pitches and passed balls."
     )
     show_catcher_table(
         frame, columns, season, minimum, search, category="Blocking",

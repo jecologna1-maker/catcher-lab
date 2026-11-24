@@ -32,9 +32,12 @@ def load_blocking_pitches(season):
     return pd.read_parquet(Path(__file__).with_name(f"blocking_pitches_{season}.parquet"))
 
 
-def blocking_review_pitches(catcher, season):
+def blocking_review_pitches(catcher, season, *, actual_only=False):
     pitches = load_blocking_pitches(season)
-    return pitches.loc[pitches["fielder_2"].eq(catcher)].sort_values(
+    matching = pitches["fielder_2"].eq(catcher)
+    if actual_only:
+        matching &= pitches["misplay"]
+    return pitches.loc[matching].sort_values(
         ["expected_misplays", "game_date", *KEY_FIELDS],
         ascending=[True, False, *([True] * len(KEY_FIELDS))],
     )
@@ -90,11 +93,16 @@ def show_framing_review(catcher, player, metric, season=2026):
 @st.dialog("Blocking Pitch Review", width="large", on_dismiss=reset_framing_review)
 def show_blocking_review(catcher, player, metric, season):
     st.subheader(player)
-    st.caption(f"{metric} · Lowest WP/PB probability first")
-    show_pitch_review(blocking_review_pitches(catcher, season), catcher, metric, season, blocking=True)
+    actual_only = metric == "Actual WP + PB"
+    pitches = blocking_review_pitches(catcher, season, actual_only=actual_only)
+    st.caption(f"{metric} · {len(pitches):,} pitches · Lowest WP/PB probability first")
+    if actual_only and pitches.empty:
+        st.info("No wild pitches or passed balls were scored on this catcher’s qualifying pitches.")
+        return
+    show_pitch_review(pitches, catcher, metric, season, blocking=True, actual_only=actual_only)
 
 
-def show_pitch_review(pitches, catcher, metric, season, *, blocking):
+def show_pitch_review(pitches, catcher, metric, season, *, blocking, actual_only=False):
     if pitches.empty:
         st.info("No pitches are available for review.")
         return
@@ -123,10 +131,12 @@ def show_pitch_review(pitches, catcher, metric, season, *, blocking):
                        date.fromisoformat(pitches["game_date"].max())),
                 key=f"{namespace}_dates", on_change=reset_pitch,
             )
-            calls = st.pills(
-                "Outcome" if blocking else "Call", list(outcomes), selection_mode="multi",
-                key=f"{namespace}_calls", on_change=reset_pitch,
-            )
+            calls = []
+            if not actual_only:
+                calls = st.pills(
+                    "Outcome" if blocking else "Call", list(outcomes), selection_mode="multi",
+                    key=f"{namespace}_calls", on_change=reset_pitch,
+                )
             families = st.pills(
                 "Pitch Group", list(PITCH_FAMILIES)[1:], selection_mode="multi",
                 key=f"{namespace}_families", on_change=reset_pitch,

@@ -16,7 +16,7 @@ from called_strike_model import fit_logistic, sigmoid
 
 BALL_RADIUS = 1.45 / 12
 # The six-foot box is centered at the midpoint of the plate (OBR Appendix 2).
-CUTOFF_BEHIND_MID_PLATE_FT = 3 + 6 / 12
+CUTOFF_BEHIND_MID_PLATE_FT = 3
 TAKES_AND_MISSES = {
     "ball", "blocked_ball", "called_strike", "swinging_strike",
     "swinging_strike_blocked", "missed_bunt",

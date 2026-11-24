@@ -127,6 +127,7 @@ def show_blocking(season, search):
     minimum = st.sidebar.number_input("Minimum Dirt Opportunities", min_value=0, value=50, step=10)
     frame = pd.read_csv(Path(__file__).with_name(f"dirt_blocking_{season}.csv"))
     frame = frame.loc[frame["opportunities"].ge(minimum)]
+    qualified = frame
     if search:
         frame = frame.loc[frame["player"].str.contains(search, case=False, regex=False, na=False)]
     columns = {
@@ -142,7 +143,7 @@ def show_blocking(season, search):
         "probability first. Actual WP + PB opens only scored wild pitches and passed balls."
     )
     show_catcher_table(
-        frame, columns, season, minimum, search, category="Blocking",
+        frame, qualified, columns, season, minimum, search, category="Blocking",
         integer_columns=["Dirt Opportunities", "Actual WP + PB"], review=show_blocking_review,
     )
 
@@ -233,6 +234,7 @@ def show_sl_plus(search, season):
     )
     df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
     df = df.loc[df["eligible_takes"].ge(minimum)]
+    qualified = df
     if search:
         df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
     df = df.sort_values("SL+", ascending=False)
@@ -248,23 +250,34 @@ def show_sl_plus(search, season):
         "with 5%–95% called-strike probability."
     )
     show_catcher_table(
-        df, columns, season, minimum, search, category="Receiving",
+        df, qualified, columns, season, minimum, search, category="Receiving",
         integer_columns=["Total Pitches"], review=show_framing_review,
     )
 
 
-def show_catcher_table(df, columns, season, minimum, search, *, category, integer_columns, review):
+def show_catcher_table(df, qualified, columns, season, minimum, search, *, category, integer_columns, review):
     results = df[list(columns)].rename(columns=columns)
+    strike_totals = [None] * len(df)
+    if category == "Receiving":
+        strike_totals = df[["called_strikes", "expected_strikes"]].to_numpy().tolist()
     rows = [
         {
             "id": int(catcher),
             "profile": catcher_profile_url(season, catcher),
             "values": list(values),
+            "strikeTotals": totals,
         }
-        for catcher, values in zip(df["catcher_id"], results.itertuples(index=False, name=None))
+        for catcher, values, totals in zip(
+            df["catcher_id"], results.itertuples(index=False, name=None), strike_totals,
+        )
     ]
+    summary = qualified[list(columns)[1:]]
+    benchmarks = None if summary.empty else {
+        "mean": [None, *summary.mean().tolist()],
+        "percentile": [None, *summary.quantile(0.9).tolist()],
+    }
     event = receiving_table(
-        rows=rows, headers=list(results.columns), default=None,
+        rows=rows, headers=list(results.columns), benchmarks=benchmarks, default=None,
         table_label=f"{category} Leaderboard", integer_columns=integer_columns,
         key=f"{category}_{season}_{minimum}_{search}",
     )

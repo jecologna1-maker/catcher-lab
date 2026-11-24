@@ -103,10 +103,51 @@ def show_results(df, identity_columns, filename, widget_key):
     )
 
 
+def show_dirt_blocking(season, search):
+    if season != 2026:
+        st.info("Dirt Blocking is available for the 2026 regular season.")
+        return
+
+    st.caption(
+        "Tracked pitches projected to touch dirt by the front of home plate, with a runner "
+        "on base or a chance for the batter to reach on an uncaught third strike."
+    )
+    with st.expander("How Dirt Blocking is calculated"):
+        st.write(
+            "The pitch trajectory estimates where the ball would touch the ground. "
+            "The model estimates the chance of a scored wild pitch or passed ball from "
+            "location, depth below ground at the plate, speed, movement, handedness, "
+            "and the runner and out situation. Catcher identity is excluded, and "
+            "each game is scored using a model trained on other games."
+        )
+        st.write(
+            "Blocks Above Average equals expected minus actual wild pitches and passed balls. "
+            "A score of +5 means five fewer scored misplays than expected given the pitches received. "
+            "A pitch without a scored misplay can still have bounced away without anyone advancing."
+        )
+    minimum = st.sidebar.number_input("Minimum Dirt Opportunities", min_value=0, value=50, step=10)
+    frame = pd.read_csv(Path(__file__).with_name(f"dirt_blocking_{season}.csv"))
+    frame = frame.loc[frame["opportunities"].ge(minimum)]
+    if search:
+        frame = frame.loc[frame["player"].str.contains(search, case=False, regex=False, na=False)]
+    columns = {
+        "player": "Player",
+        "opportunities": "Dirt Opportunities",
+        "blocks_above_average": "Blocks Above Average",
+        "actual_misplays": "Actual WP + PB",
+        "expected_misplays": "Expected WP + PB",
+    }
+    frame = frame.sort_values("blocks_above_average", ascending=False)[list(columns)].rename(columns=columns)
+    show_results(frame.round(2), ["Player"], f"dirt_blocking_{season}.csv", "dirt_blocking_columns")
+
+
 def show_leaderboard(season):
-    category = st.sidebar.radio("Category", ["Receiving", *DATASETS])
+    category = st.sidebar.radio("Category", ["Receiving", "Dirt Blocking", *DATASETS])
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
+    if category == "Dirt Blocking":
+        show_dirt_blocking(season, search)
+        return
     if category == "Receiving":
         if has_receiving_data(season):
             show_sl_plus(search, season)

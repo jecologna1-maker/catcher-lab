@@ -233,7 +233,7 @@ def show_pitch_review(pitches, catcher, metric, season, *, blocking, actual_only
             except (requests.RequestException, ValueError):
                 pass
         if source:
-            st.video(source, format="video/mp4")
+            st.video(source, format="video/mp4", autoplay=True, muted=True)
         else:
             st.info("An embedded Savant video is unavailable for this pitch.")
         if play_id:

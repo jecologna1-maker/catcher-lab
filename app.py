@@ -430,6 +430,48 @@ def show_pitch_search(season):
     )
 
 
+def show_glossary():
+    st.header("Catcher Lab Glossary")
+
+    st.subheader("Receiving")
+    st.markdown(
+        """
+        - **Decisive Pitches** — Tracked takes with a predicted called-strike probability from 5% through 95%, inclusive. The Receiving leaderboard defaults to a minimum of 500.
+        - **jcSL+** — 100 × actual called strikes ÷ expected called strikes across eligible takes. A score of 100 means the catcher received exactly as many strikes as expected.
+        - **jcSLAA** — Strikes Looking Above Average. Actual called strikes minus expected called strikes, summed across eligible takes.
+        - **jcFRMAA** — Framing Runs Above Average. Each pitch’s actual strike result (1 for a called strike, 0 for a ball) minus its predicted strike probability, weighted by the run value of a strike versus a ball for that pitch’s runners, outs, and count.
+        - **50/50%** — The percentage of takes actually called strikes among pitches with a predicted called-strike probability from 25% to under 75%.
+        - **Gimme+** — 100 × actual ÷ expected called strikes for takes at 75.1% predicted strike probability or higher. It measures how well the catcher keeps expected strikes.
+        - **Win+** — 100 × actual ÷ expected called strikes for takes at 24.9% predicted strike probability or lower. It measures how often the catcher earns a strike on pitches that tend to be called balls.
+        - **Called strikes, expected strikes, and eligible takes** — Called strikes count the observed calls. Expected strikes sum the individual called-strike probabilities. Eligible takes are tracked pitches scored by the model, and include pitches outside the Decisive Pitches band.
+        """
+    )
+    st.caption(
+        "Receiving models are fit separately for each season from 2020 through 2026. "
+        "The 2026 scores use the umpire’s initial call before any ABS overturn."
+    )
+
+    st.subheader("Blocking")
+    st.markdown(
+        f"""
+        - **Block Opportunities** — Tracked pitches projected to hit dirt by the back edge of the batter’s box, with a runner on base or a two-strike swing-and-miss with the bases empty.
+        - **Block+** — 100 × actual blocks ÷ expected blocks. Actual blocks are opportunities minus Missed Blocks. Expected blocks are opportunities minus xMiss. A score of 100 means the catcher blocked as many pitches as expected.
+        - **BLAA** — Blocks Above Average. xMiss minus Missed Blocks. Positive means fewer misses than expected.
+        - **Block Rate** — Percentage of block opportunities without a wild pitch or passed ball recorded. It measures recorded outcomes when a runner could advance.
+        - **Missed Blocks** — Number of qualifying pitches with a scored wild pitch or passed ball. Each pitch counts once.
+        - **xMiss** — Expected misses. The sum of the modeled wild-pitch or passed-ball probabilities across qualifying opportunities.
+        - **Miss Surplus** — Missed Blocks minus xMiss. Positive means more misses than expected.
+        - **Routine+** — Block+ on opportunities below {ROUTINE_CUTOFF:.2%} predicted wild-pitch or passed-ball risk.
+        - **Extended+** — Block+ on opportunities from {ROUTINE_CUTOFF:.2%} to below {DIFFICULT_CUTOFF:.2%} predicted risk.
+        - **Difficult+** — Block+ on opportunities at {DIFFICULT_CUTOFF:.2%} predicted risk or higher.
+        """
+    )
+    st.caption(
+        "Blocking is available for 2026. The three difficulty bands each contain about a third "
+        "of the league’s expected misses. The displayed cutoffs are rounded."
+    )
+
+
 def query_number(name):
     value = st.query_params.get(name, "")
     return int(value) if value.isascii() and value.isdecimal() and len(value) <= 10 else None
@@ -440,9 +482,9 @@ requested_season = query_number("season")
 season = st.sidebar.selectbox(
     "Season", SEASONS, index=SEASONS.index(requested_season) if requested_season in SEASONS else 0,
 )
-views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard"]
+views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard", "Glossary"]
 requested_view = st.query_params.get("view")
-default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles"}.get(
+default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles", "glossary": "Glossary"}.get(
     requested_view, "Leaderboards"
 )
 if pending := st.session_state.pop("pending_profile", None):
@@ -459,6 +501,8 @@ try:
         show_pitch_search(season)
     elif view == "Catcher Profiles":
         show_catcher_profile(season, query_number("catcher") if requested_season == season else None)
+    elif view == "Glossary":
+        show_glossary()
     else:
         show_sl_plus_leaderboard(season)
 except pd.errors.EmptyDataError:

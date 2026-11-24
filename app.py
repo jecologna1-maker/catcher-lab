@@ -205,6 +205,17 @@ def show_leaderboard(season):
     show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}")
 
 
+
+
+@st.cache_data(max_entries=7)
+def decisive_pitch_counts(season, data_version):
+    pitches = pd.read_parquet(
+        Path(__file__).with_name(f"catcher_pitches_{season}.parquet"),
+        columns=["fielder_2", "expected"],
+    )
+    return pitches.loc[pitches["expected"].between(0.05, 0.95)].groupby("fielder_2").size()
+
+
 def show_sl_plus(search, season):
     st.subheader("Catcher jcSL+")
     st.caption(
@@ -239,11 +250,13 @@ def show_sl_plus(search, season):
         )
     minimum = st.sidebar.number_input(
         "Minimum Decisive Pitches Received", min_value=0, value=500, step=50,
-        help="A decisive pitch is an eligible tracked take called a ball or a strike.",
+        help="Decisive pitches are takes with a 5% through 95% predicted called-strike probability.",
     )
     df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
-    df = df.loc[df["eligible_takes"].ge(minimum)]
     data_file = Path(__file__).with_name(f"catcher_pitches_{season}.parquet")
+    counts = decisive_pitch_counts(season, data_file.stat().st_mtime_ns)
+    df["decisive_pitches"] = df["catcher_id"].map(counts).fillna(0).astype(int)
+    df = df.loc[df["decisive_pitches"].ge(minimum)]
     bands = receiving_band_totals(season, data_file.stat().st_mtime_ns)
     for metric, totals in bands.items():
         totals = totals.reindex(df["catcher_id"])
@@ -254,7 +267,7 @@ def show_sl_plus(search, season):
     df = df.sort_values("SL+", ascending=False)
     columns = {
         "player": "Player",
-        "eligible_takes": "Decisive Pitches",
+        "decisive_pitches": "Decisive Pitches",
         "SL+": "jcSL+",
         "SLAA": "jcSLAA",
         "Framing Runs Above Average": "jcFRMAA",

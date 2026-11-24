@@ -64,11 +64,24 @@ def profile_data(season=2026):
     return load_profile_data(season, version)
 
 
+HALF_PLATE = 17 / 24
+
+
+def home_plate_path(front, depth):
+    side = front - depth / 2
+    tip = front - depth
+    return (f"M {-HALF_PLATE},{front} L {HALF_PLATE},{front} "
+            f"L {HALF_PLATE},{side} L 0,{tip} L {-HALF_PLATE},{side} Z")
+
+
 @st.cache_data
 def hitter_silhouette():
     with Image.open(Path(__file__).with_name("hitter-silhouette.png")) as source:
         image = source.convert("RGBA")
-    return image.crop(image.getbbox())
+    alpha = image.getchannel("A")
+    silhouette = Image.new("RGBA", image.size, "#141019")
+    silhouette.putalpha(alpha)
+    return silhouette.crop(alpha.getbbox())
 
 
 def heat_map(pitches, overlay=None, hitter=None):
@@ -132,12 +145,14 @@ def heat_map(pitches, overlay=None, hitter=None):
         sizing="stretch", layer="below",
     )
     silhouette = hitter_silhouette()
+    plate_front = -0.77
+    hitter_height = 2.40  # In units of the normalized, one-unit strike-zone height.
     # Catcher's perspective: a right-handed hitter stands on the viewer's left.
     for side, left, image in (("R", -2.48, silhouette), ("L", 0.88, ImageOps.mirror(silhouette))):
         if hitter is None or hitter == side:
             figure.add_layout_image(
-                source=image, xref="x", yref="y", x=left, y=1.37,
-                sizex=1.60, sizey=2.18, sizing="stretch", layer="below", opacity=0.60,
+                source=image, xref="x", yref="y", x=left, y=plate_front + hitter_height,
+                sizex=1.60, sizey=hitter_height, sizing="stretch", layer="below", opacity=0.84,
             )
     if overlay is not None:
         for call, color in (("Ball", "#bb4b37"), ("Called strike", "#17629c")):
@@ -158,11 +173,11 @@ def heat_map(pitches, overlay=None, hitter=None):
             )
     for width, color in ((4, "#102540"), (1.4, "#ffffff")):
         figure.add_shape(
-            type="rect", x0=-17 / 24, x1=17 / 24, y0=0, y1=1,
+            type="rect", x0=-HALF_PLATE, x1=HALF_PLATE, y0=0, y1=1,
             line={"color": color, "width": width},
         )
     figure.add_shape(
-        type="path", path="M -0.69,-0.77 L 0.69,-0.77 L 0.69,-0.89 L 0,-1.05 L -0.69,-0.89 Z",
+        type="path", path=home_plate_path(plate_front, 0.28),
         line={"color": "#64748b", "width": 1.5}, fillcolor="#e2e8f0",
     )
     visible_y = [-1.15, 2.05]

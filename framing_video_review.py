@@ -1,4 +1,5 @@
 from datetime import date
+from html import escape
 from pathlib import Path
 
 import pandas as pd
@@ -7,7 +8,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from catcher_profiles import LOCATIONS, PITCH_FAMILIES, profile_data
+from catcher_profiles import HALF_PLATE, LOCATIONS, PITCH_FAMILIES, home_plate_path, profile_data
 from sl_plus_leaderboard import (
     BASE_STATES, HANDEDNESS, KEY_FIELDS, filter_pitches, load_video_source,
     savant_clip_url, savant_game_pitches,
@@ -45,10 +46,20 @@ def blocking_review_pitches(catcher, season, *, actual_only=False):
     )
 
 
+# These limits keep the strike zone the same size on every clip.
+PITCH_X_RANGE = (-2.5, 2.5)
+PITCH_HEIGHT_RANGE = (-1.65, 1.65)
+
+
 def pitch_location_diagram(pitch, *, favorable=None):
-    """Plot plate coordinates and batter-relative zone height from the catcher’s view."""
-    half_plate = 17 / 24
+    """Plot a pitch location from the catcher’s view, with a fixed viewport."""
+    half_plate = HALF_PLATE
     x, height = pitch.plate_x, pitch.zone_height
+    clipped = not (PITCH_X_RANGE[0] < x < PITCH_X_RANGE[1]
+                   and PITCH_HEIGHT_RANGE[0] < height < PITCH_HEIGHT_RANGE[1])
+    if clipped:
+        x = min(max(x, PITCH_X_RANGE[0] + 0.12), PITCH_X_RANGE[1] - 0.12)
+        height = min(max(height, PITCH_HEIGHT_RANGE[0] + 0.12), PITCH_HEIGHT_RANGE[1] - 0.12)
     if favorable is None:
         favorable = pitch.called
     figure = go.Figure()
@@ -63,23 +74,21 @@ def pitch_location_diagram(pitch, *, favorable=None):
         figure.add_shape(type="line", x0=line_x, x1=line_x, y0=0, y1=1,
                          line={"color": "#cbbbd5", "width": 1})
     figure.add_shape(
-        type="path", path="M -0.48,-0.40 L 0.48,-0.40 L 0.48,-0.47 L 0,-0.61 L -0.48,-0.47 Z",
+        type="path", path=home_plate_path(-0.34, 0.26),
         fillcolor="#eee8f1", line={"color": "#503363", "width": 1},
     )
     figure.add_scatter(
         x=[x], y=[height], mode="markers", hoverinfo="skip",
         marker={
-            "size": 13, "color": "#d8b64c" if favorable else "#6b35a1",
+            "size": 12, "symbol": "circle-open" if clipped else "circle", "color": "#d8b64c" if favorable else "#6b35a1",
             "line": {"color": "#342044", "width": 1.5},
         },
     )
-    x_bound = max(1.25, abs(x) + 0.18)
     figure.update_layout(
-        height=215, margin={"l": 6, "r": 6, "t": 6, "b": 6},
+        height=190, margin={"l": 6, "r": 6, "t": 6, "b": 6},
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis={"visible": False, "range": [-x_bound, x_bound], "fixedrange": True},
-        yaxis={"visible": False, "range": [min(-0.67, height - 0.12), max(1.20, height + 0.12)],
-               "fixedrange": True},
+        xaxis={"visible": False, "range": PITCH_X_RANGE, "fixedrange": True},
+        yaxis={"visible": False, "range": PITCH_HEIGHT_RANGE, "fixedrange": True},
         dragmode=False, showlegend=False,
     )
     return figure
@@ -214,16 +223,23 @@ def show_pitch_review(pitches, catcher, metric, season, *, blocking, actual_only
     with details:
         outcome = bool(pitch[outcome_column])
         call = outcome_labels[outcome]
-        st.markdown(f"**{call} · {pitch.pitch_name}**")
-        st.text(f"Date  {pitch.game_date}")
-        st.text(f"Pitcher  {pitcher or 'Unavailable'}")
-        st.text(f"Hitter  {hitter or f'MLB ID {pitch.batter}'}")
-        st.text(f"Count  {pitch.balls}-{pitch.strikes}")
-        st.text(f"{probability_label}  {pitch[probability_column]:.1%}")
+        pitcher_name = escape(pitcher or "Unavailable")
+        hitter_name = escape(hitter or f"MLB ID {pitch.batter}")
+        st.html(
+            '<div style="font-size:.82rem;line-height:1.4">'
+            f'<strong>{escape(call)} · {escape(str(pitch.pitch_name))}</strong><br>'
+            f'{pitch.game_date} · Count {pitch.balls}-{pitch.strikes}<br>'
+            f'Pitcher {pitcher_name} · Hitter {hitter_name}<br>'
+            f'<strong>{pitch[probability_column]:.1%}</strong> {probability_label}'
+            '</div>'
+        )
         if pd.notna(pitch.zone_height):
-            st.caption("Pitch Location · Catcher’s View")
+            diagram = pitch_location_diagram(pitch, favorable=outcome != blocking)
+            location_label = "Pitch Location · Catcher’s View"
+            if diagram.data[0].marker.symbol == "circle-open":
+                location_label += " · Beyond chart edge"
+            st.caption(location_label)
             st.plotly_chart(
-                pitch_location_diagram(pitch, favorable=outcome != blocking),
-                config={"displayModeBar": False, "staticPlot": True},
+                diagram, config={"displayModeBar": False, "staticPlot": True},
                 key=f"{namespace}_location_chart",
             )

@@ -8,11 +8,11 @@ from PIL import Image, ImageOps
 from streamlit.components.v1 import html
 
 
-@st.cache_data
-def load_profile_data(data_version):
+@st.cache_data(max_entries=2)
+def load_profile_data(season, data_version):
     folder = Path(__file__).parent
-    catchers = pd.read_csv(folder / "sl_plus_2026.csv").sort_values("player")
-    pitches = pd.read_parquet(folder / "catcher_pitches_2026.parquet")
+    catchers = pd.read_csv(folder / f"sl_plus_{season}.csv").sort_values("player")
+    pitches = pd.read_parquet(folder / f"catcher_pitches_{season}.parquet")
     return catchers, pitches
 
 
@@ -49,10 +49,19 @@ def pitch_location_mask(pitches, location):
     return middle & (horizontal.gt(0) if location == "Arm side" else horizontal.lt(0))
 
 
-def profile_data():
-    data_file = Path(__file__).with_name("catcher_pitches_2026.parquet")
-    stat = data_file.stat()
-    return load_profile_data((stat.st_mtime_ns, stat.st_size))
+def has_receiving_data(season):
+    folder = Path(__file__).parent
+    return all((folder / name).is_file() for name in (
+        f"sl_plus_{season}.csv", f"catcher_pitches_{season}.parquet",
+        f"called_strike_model_{season}.json",
+    ))
+
+
+def profile_data(season=2026):
+    folder = Path(__file__).parent
+    files = [folder / f"catcher_pitches_{season}.parquet", folder / f"sl_plus_{season}.csv"]
+    version = tuple(path.stat().st_mtime_ns for path in files)
+    return load_profile_data(season, version)
 
 
 @st.cache_data
@@ -210,11 +219,11 @@ def show_stance_usage(catcher):
 
 
 def show_catcher_profile(season):
-    if season != 2026:
-        st.info("Catcher profiles are available for the 2026 regular season.")
+    if not has_receiving_data(season):
+        st.info(f"Catcher profiles are unavailable for the {season} season.")
         return
 
-    catchers, pitches = profile_data()
+    catchers, pitches = profile_data(season)
     roster = catchers.set_index("catcher_id")
     catcher = st.sidebar.selectbox(
         "Catcher", roster.index.tolist(), format_func=lambda player: roster.at[player, "player"]
@@ -222,10 +231,11 @@ def show_catcher_profile(season):
     player = roster.loc[catcher]
     profile = pitches.loc[pitches["fielder_2"].eq(catcher)]
     st.header(player["player"])
-    st.caption("2026 regular season · Catcher profile")
+    st.caption(f"{season} regular season · Catcher profile")
     show_receiving_profile(profile)
-    with st.container(border=True, key="stance_panel"):
-        show_stance_usage(catcher)
+    if season == 2026:
+        with st.container(border=True, key="stance_panel"):
+            show_stance_usage(catcher)
 
 
 def show_receiving_profile(profile):

@@ -1,11 +1,12 @@
-r"""Build 2026 SL+ from regular-season Statcast CSV batches and ABS overturns.
+r"""Build season-specific jcSL+ from regular-season Statcast CSV batches.
 
-Usage: python build_sl_plus.py PITCH_CSV_DIRECTORY ABS_OVERTURNS_CSV MLB_SCHEDULE_JSON
+Usage: python build_sl_plus.py PITCH_CSV_DIRECTORY ABS_OVERTURNS_CSV_OR_DASH MLB_SCHEDULE_JSON --season YEAR --enhanced
 Download pitch details from Baseball Savant Statcast Search with type=details,
 all=true, hfGT=R|, and inclusive game_date_gt/game_date_lt in three-day batches.
-For the overturns CSV query the same season with hfABSFlag set to
+For 2026, query the overturns CSV with hfABSFlag set to
 is\.\.challengeabs\.\.overturned| (URL-encode the value).
-Use the MLB Stats API schedule with sportId=1, season=2026, and gameType=R.
+Pass a dash in place of the overturns CSV for 2020–2025.
+Use the MLB Stats API schedule with sportId=1, the selected season, and gameType=R.
 The schedule verifies coverage and the output is written beside this script.
 For --review or --enhanced add hydrate=officials to the schedule request. The
 enhanced build adds pitch trajectory and the
@@ -33,38 +34,47 @@ FIELDS = KEY + [
     "on_1b", "on_2b", "on_3b",
 ]
 CALLS = ("called_strike", "ball", "blocked_ball")
+SEASON_GAMES = {2020: 898, 2021: 2429, 2022: 2430, 2023: 2430, 2024: 2429, 2025: 2430, 2026: 2429}
 
 
-def load_takes(paths, overturn_path, schedule_path, extra_fields=()):
+def load_takes(paths, overturn_path, schedule_path, extra_fields=(), season=2026):
     fields = [*FIELDS, *extra_fields]
     batches = [pd.read_csv(path, usecols=fields) for path in paths]
     if any(len(batch) >= 24999 for batch in batches):
         raise ValueError("A pitch query may have reached the Statcast export limit")
-    pitches = pd.concat(batches, ignore_index=True)
+    pitches = pd.concat([batch for batch in batches if not batch.empty], ignore_index=True)
     schedule = json.loads(schedule_path.read_text())
     games = {
         game["gamePk"] for day in schedule["dates"] for game in day["games"]
         if game["status"]["detailedState"] in {"Final", "Completed Early"}
     }
-    if len(games) != 2429 or set(pitches["game_pk"]) != games:
-        raise ValueError("Pitch batches do not match the complete MLB schedule")
+    pitch_games = set(pitches["game_pk"])
+    if len(games) != SEASON_GAMES[season] or pitch_games != games:
+        raise ValueError(
+            f"{season} game coverage: {len(pitch_games)}/{len(games)}; "
+            f"missing {sorted(games - pitch_games)}, unexpected {sorted(pitch_games - games)}"
+        )
+    if not pitches["game_date"].str.startswith(f"{season}-").all():
+        raise ValueError("Pitch dates must be from the selected season")
     if pitches.duplicated(KEY).any() or not pitches["game_type"].eq("R").all():
         raise ValueError("Expected unique regular-season pitches")
 
-    overturns = pd.read_csv(overturn_path, usecols=KEY + ["description"])
-    if len(overturns) != 5686 or overturns.duplicated(KEY).any():
-        raise ValueError("Unexpected ABS overturn coverage")
-    calls = pitches.set_index(KEY)["description"]
-    overturned_calls = calls.reindex(pd.MultiIndex.from_frame(overturns[KEY]))
-    if not overturned_calls.reset_index(drop=True).eq(overturns["description"]).all():
-        raise ValueError("Savant feeds disagree on the final ABS calls")
-    if overturned_calls.isna().any() or not overturned_calls.isin(CALLS).all():
-        raise ValueError("Could not match every ABS overturn to a Statcast take")
-
     takes = pitches.loc[pitches["description"].isin(CALLS)].copy()
     takes["called"] = takes["description"].eq("called_strike")
-    overturned = pd.MultiIndex.from_frame(takes[KEY]).isin(overturned_calls.index)
-    takes.loc[overturned, "called"] = ~takes.loc[overturned, "called"]
+    reversal_count = 0
+    if season == 2026:
+        overturns = pd.read_csv(overturn_path, usecols=KEY + ["description"])
+        if len(overturns) != 5686 or overturns.duplicated(KEY).any():
+            raise ValueError("Unexpected ABS overturn coverage")
+        calls = pitches.set_index(KEY)["description"]
+        overturned_calls = calls.reindex(pd.MultiIndex.from_frame(overturns[KEY]))
+        if not overturned_calls.reset_index(drop=True).eq(overturns["description"]).all():
+            raise ValueError("Savant feeds disagree on the final ABS calls")
+        if not overturned_calls.isin(CALLS).all():
+            raise ValueError("Could not match every ABS overturn to a Statcast take")
+        overturned = pd.MultiIndex.from_frame(takes[KEY]).isin(overturned_calls.index)
+        takes.loc[overturned, "called"] = ~takes.loc[overturned, "called"]
+        reversal_count = len(overturns)
     required = ["fielder_2", "plate_x", "plate_z", "sz_bot", "sz_top", "balls", "strikes"]
     zone_height = takes["sz_top"] - takes["sz_bot"]
     valid = (
@@ -75,7 +85,7 @@ def load_takes(paths, overturn_path, schedule_path, extra_fields=()):
         & takes["balls"].between(0, 3)
         & takes["strikes"].between(0, 2)
     )
-    print(f"{len(games)} games, {len(overturns)} reversals, {(~valid).sum()} untracked takes excluded")
+    print(f"{len(games)} games, {reversal_count} reversals, {(~valid).sum()} untracked takes excluded")
     return takes.loc[valid].copy()
 
 
@@ -147,15 +157,16 @@ def main():
     parser.add_argument("pitch_directory", type=Path)
     parser.add_argument("overturn_csv", type=Path)
     parser.add_argument("schedule_json", type=Path)
+    parser.add_argument("--season", type=int, choices=SEASON_GAMES, default=2026)
     parser.add_argument("--review", action="store_true", help="Compare models without updating outputs")
     parser.add_argument("--enhanced", action="store_true", help="Build with the enhanced model")
     args = parser.parse_args()
     extra_fields = TRAJECTORY_FIELDS if args.review or args.enhanced else ()
     takes = load_takes(sorted(args.pitch_directory.glob("*.csv")), args.overturn_csv,
-                       args.schedule_json, extra_fields=[*extra_fields, *RUN_FIELDS])
+                       args.schedule_json, extra_fields=[*extra_fields, *RUN_FIELDS], season=args.season)
     if extra_fields:
-        features = model_features(takes, args.schedule_json)
-        review = chronological_review(takes, features, baseline_predictor(takes))
+        features = model_features(takes, args.schedule_json, season=args.season)
+        review = chronological_review(takes, features, baseline_predictor(takes), season=args.season)
         if args.review:
             return
         if any(
@@ -168,7 +179,7 @@ def main():
             takes["called"].to_numpy(dtype=float), takes["expected"].to_numpy(),
             features["signed_edge_distance"].abs().le(0.25).to_numpy(),
         )
-        Path(__file__).with_name("called_strike_model_2026.json").write_text(
+        Path(__file__).with_name(f"called_strike_model_{args.season}.json").write_text(
             json.dumps(review, indent=2) + "\n", encoding="utf-8"
         )
     else:
@@ -188,7 +199,7 @@ def main():
     contextual = takes.groupby(takes["fielder_2"].astype(int))[["slaa", "framing_runs_aa"]].sum()
     result["SLAA"] = contextual["slaa"]
     result["Framing Runs Above Average"] = contextual["framing_runs_aa"]
-    result.to_csv(Path(__file__).with_name("sl_plus_2026.csv"), float_format="%.6f")
+    result.to_csv(Path(__file__).with_name(f"sl_plus_{args.season}.csv"), float_format="%.6f")
     profiles = takes[KEY + [
         "game_date", "fielder_2", "batter", "home_team", "away_team", "inning",
         "pitch_name", "pitch_type", "p_throws", "stand", "balls", "strikes",
@@ -224,7 +235,7 @@ def main():
     profiles["expected"] = profiles["expected"].astype("float32")
     profiles["plate_x"] = profiles["plate_x"].astype("float32")
     profiles.sort_values(["fielder_2", "game_date", *KEY]).to_parquet(
-        Path(__file__).with_name("catcher_pitches_2026.parquet"), index=False
+        Path(__file__).with_name(f"catcher_pitches_{args.season}.parquet"), index=False
     )
     print(f"{len(result)} catchers")
 

@@ -15,8 +15,8 @@ def reset_framing_review():
 
 
 @st.cache_data(max_entries=20, show_spinner=False)
-def review_pitches(catcher):
-    _, pitches = profile_data()
+def review_pitches(catcher, season=2026):
+    _, pitches = profile_data(season)
     return pitches.loc[
         pitches["fielder_2"].eq(catcher)
         & pitches["expected"].between(0.05, 0.95, inclusive="both")
@@ -24,15 +24,15 @@ def review_pitches(catcher):
 
 
 @st.dialog("Framing Pitch Review", width="large", on_dismiss=reset_framing_review)
-def show_framing_review(catcher, player, metric):
+def show_framing_review(catcher, player, metric, season=2026):
     st.subheader(player)
     st.caption(f"{metric} · 5%–95% called-strike probability · Newest games first")
-    pitches = review_pitches(catcher)
+    pitches = review_pitches(catcher, season)
     if pitches.empty:
         st.info("No pitches are available in this probability range.")
         return
 
-    namespace = f"review_{st.session_state.get('framing_review_version', 0)}_{catcher}_{metric}"
+    namespace = f"review_{st.session_state.get('framing_review_version', 0)}_{season}_{catcher}_{metric}"
 
     def reset_pitch():
         st.session_state.pop(f"{namespace}_pitch", None)

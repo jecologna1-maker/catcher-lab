@@ -8,7 +8,7 @@ from datetime import date
 from io import StringIO
 from pathlib import Path
 
-from catcher_profiles import show_catcher_profile
+from catcher_profiles import has_receiving_data, show_catcher_profile
 from sl_plus_leaderboard import show_sl_plus_leaderboard
 from framing_video_review import show_framing_review
 
@@ -96,10 +96,10 @@ def show_leaderboard(season):
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
     if category == "Receiving":
-        if season == 2026:
-            show_sl_plus(search)
+        if has_receiving_data(season):
+            show_sl_plus(search, season)
         else:
-            st.info("Catcher Lab receiving scores are available for the 2026 regular season.")
+            st.info(f"Catcher Lab receiving scores are unavailable for the {season} season.")
         return
 
     with st.spinner("Loading Statcast data..."):
@@ -137,10 +137,10 @@ def show_leaderboard(season):
     show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}")
 
 
-def show_sl_plus(search):
+def show_sl_plus(search, season):
     st.subheader("Catcher jcSL+")
     st.caption(
-        "2026 regular season. 100 × actual called strikes ÷ expected called strikes. "
+        f"{season} regular season. 100 × actual called strikes ÷ expected called strikes. "
         "100 means the catcher received as many called strikes as expected."
     )
     with st.expander("How the framing metrics are calculated"):
@@ -149,9 +149,11 @@ def show_sl_plus(search):
             "using pitch location, batter zone height, count, batter and pitcher "
             "handedness, velocity, horizontal and vertical approach angles, "
             "horizontal and vertical movement, spin rate and axis, and the home-plate "
-            "umpire. Each game is scored by a model trained on other games. The scoring "
-            "uses the initial umpire call before an ABS overturn and excludes catcher identity."
+            "umpire. Each game is scored by a model trained on other games in the same season. "
+            "Catcher identity is excluded from the model."
         )
+        if season == 2026:
+            st.write("For 2026, scoring uses the initial umpire call before any ABS overturn.")
         st.write(
             "jcSLAA (Strikes Looking Above Average) adds actual minus expected called strikes across pitches. "
             "jcFRAA (Framing Runs Above Average) weights that difference by the value of changing "
@@ -159,18 +161,18 @@ def show_sl_plus(search):
             "Run weights use the difference between Savant’s median run-expectancy changes "
             "for balls and called strikes, with sparse states pulled toward their count average."
         )
-        review = json.loads(Path(__file__).with_name("called_strike_model_2026.json").read_text())
+        review = json.loads(Path(__file__).with_name(f"called_strike_model_{season}.json").read_text())
         baseline = review["baseline"]["edge"]
         challenger = review["challenger"]["edge"]
         st.caption(
-            f"On {challenger['pitches']:,} borderline takes from August and September games, "
+            f"On {challenger['pitches']:,} borderline takes from games starting {review['test_start']}, "
             f"Brier score improved from {baseline['brier']:.4f} to {challenger['brier']:.4f}. "
             "Lower scores indicate more accurate probabilities."
         )
     minimum = st.sidebar.number_input(
         "Minimum eligible takes", min_value=0, value=200, step=50
     )
-    df = pd.read_csv(Path(__file__).with_name("sl_plus_2026.csv"))
+    df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
     df = df.loc[df["eligible_takes"].ge(minimum)]
     if search:
         df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
@@ -201,7 +203,7 @@ def show_sl_plus(search):
     })
     event = st.dataframe(
         styled_results, hide_index=True, selection_mode="single-cell", on_select="rerun",
-        key=f"framing_table_{st.session_state.get('framing_review_version', 0)}_{minimum}_{search}",
+        key=f"framing_table_{st.session_state.get('framing_review_version', 0)}_{season}_{minimum}_{search}",
         column_config={
             "Total Pitches": st.column_config.NumberColumn(
                 help="Decisive called balls and called strikes"
@@ -212,10 +214,10 @@ def show_sl_plus(search):
         position, column = event.selection.cells[0]
         if column != "Player" and position < len(df):
             row = df.iloc[position]
-            show_framing_review(int(row["catcher_id"]), row["player"], column)
+            show_framing_review(int(row["catcher_id"]), row["player"], column, season)
     st.download_button(
         "Download CSV", results.round(2).to_csv(index=False),
-        file_name="catcher_framing_2026.csv", mime="text/csv",
+        file_name=f"catcher_framing_{season}.csv", mime="text/csv",
     )
 
 
@@ -243,10 +245,11 @@ def show_pitch_search(season):
     st.header(f"{season} Statcast Pitch Search")
     st.caption("Regular-season pitches. Choose a date range of up to 7 days.")
 
+    default_pitch_day = date(season, 7, 23) if season == 2020 else date(season, 6, 1)
     with st.sidebar.form(f"pitch_dates_{season}"):
         dates = st.date_input(
             "Game dates",
-            value=(date(season, 6, 1), date(season, 6, 1)),
+            value=(default_pitch_day, default_pitch_day),
             min_value=date(season, 1, 1),
             max_value=date(season, 12, 31),
         )

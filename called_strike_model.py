@@ -32,13 +32,13 @@ def plate_umpires(schedule_path):
     return assignments
 
 
-def approach_angles(pitches):
-    """Estimate approach angles at the middle of the plate, in degrees."""
+def approach_angles(pitches, plate_depth=HALF_PLATE_FT):
+    """Estimate approach angles at the Statcast measurement plane, in degrees."""
     vx, vy, vz, ax, ay, az = (pitches[field].to_numpy() for field in (
         "vx0", "vy0", "vz0", "ax", "ay", "az",
     ))
     # CSV velocity is evaluated 50 feet from the back point of the plate.
-    travel = 50 - HALF_PLATE_FT
+    travel = 50 - plate_depth
     with np.errstate(invalid="ignore", divide="ignore"):
         final_y = -np.sqrt(vy**2 - 2 * ay * travel)
         time = 2 * travel / -(vy + final_y)
@@ -48,7 +48,7 @@ def approach_angles(pitches):
     return np.where(valid, haa, np.nan), np.where(valid, vaa, np.nan)
 
 
-def model_features(pitches, schedule_path):
+def model_features(pitches, schedule_path, season=2026):
     assignments = plate_umpires(schedule_path)
     umpires = pitches["game_pk"].map(assignments)
     if umpires.isna().any():
@@ -63,7 +63,8 @@ def model_features(pitches, schedule_path):
         np.minimum(np.minimum(side, bottom), top),
         -np.hypot(np.minimum(side, 0), np.minimum(np.minimum(bottom, top), 0)),
     )
-    haa, vaa = approach_angles(pitches)
+    plate_depth = HALF_PLATE_FT if season >= 2026 else 2 * HALF_PLATE_FT
+    haa, vaa = approach_angles(pitches, plate_depth)
     axis = np.deg2rad(pitches["spin_axis"])
     features = pd.DataFrame({
         "plate_x": x,
@@ -190,18 +191,23 @@ def metrics(called, predictions, borderline):
     return scores
 
 
-def chronological_review(takes, features, baseline_predict):
+def chronological_review(takes, features, baseline_predict, season=2026):
     called = takes["called"].to_numpy(dtype=float)
     # Split by game, even if a suspended game has pitches listed on different dates.
     first_date = takes.groupby("game_pk")["game_date"].transform("min")
-    test = first_date.ge("2026-08-01").to_numpy()
+    if season == 2026:
+        test_start = "2026-08-01"
+    else:
+        game_dates = first_date.groupby(takes["game_pk"]).first().sort_values()
+        test_start = game_dates.iloc[int(len(game_dates) * 0.8)]
+    test = first_date.ge(test_start).to_numpy()
     baseline = baseline_predict(~test, test)
     alternate = fit_probability(features.loc[~test], called[~test], features.loc[test])
     neutral = features.drop(columns=UMPIRE_FIELD)
     without_umpire = fit_probability(neutral.loc[~test], called[~test], neutral.loc[test])
     edge = features.loc[test, "signed_edge_distance"].abs().le(0.25).to_numpy()
     review = {
-        "test_start": "2026-08-01",
+        "test_start": test_start,
         "baseline": metrics(called[test], baseline, edge),
         "without_umpire": metrics(called[test], without_umpire, edge),
         "challenger": metrics(called[test], alternate, edge),

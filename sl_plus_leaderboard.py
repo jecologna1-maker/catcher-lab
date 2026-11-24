@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from catcher_profiles import LOCATIONS, PITCH_FAMILIES, pitch_location_mask, profile_data
+from catcher_profiles import LOCATIONS, PITCH_FAMILIES, has_receiving_data, pitch_location_mask, profile_data
 
 HANDEDNESS = {"Left": "L", "Right": "R"}
 BASE_STATES = {"Bases Empty": False, "Runners On Base": True}
@@ -185,8 +185,8 @@ def reset_filters():
 
 def show_sl_plus_leaderboard(season):
     st.header("jcSL+ Leaderboard")
-    if season != 2026:
-        st.info("Interactive jcSL+ rankings are available for the 2026 regular season.")
+    if not has_receiving_data(season):
+        st.info(f"Interactive jcSL+ rankings are unavailable for the {season} season.")
         return
 
     with st.container(key="sl_workspace"):
@@ -225,7 +225,7 @@ def show_sl_plus_leaderboard(season):
         st.caption(" · ".join(active) if active else "All pitch groups, locations, hands, and base states.")
         st.caption(f"Minimum {minimum:,} Eligible Takes")
     bottom = ranking == "Bottom 5"
-    catchers, pitches = profile_data()
+    catchers, pitches = profile_data(season)
     matches = filter_pitches(pitches, families, locations, pitchers, hitters, base_states)
     ranked = rank_catchers(matches, minimum, bottom=bottom)
     with results, st.container(border=True, key="sl_report"):
@@ -234,7 +234,7 @@ def show_sl_plus_leaderboard(season):
             return
 
         st.subheader(f"{'Bottom' if bottom else 'Top'} {len(ranked)} by jcSL+")
-        st.caption(f"{len(matches):,} matching takes · 2026 regular season")
+        st.caption(f"{len(matches):,} matching takes · {season} regular season")
         st.html(
             '<div class="sl-report-labels" aria-hidden="true">'
             '<span>Rank / Catcher</span><span>Filtered jcSL+</span><span>Overall jcSL+</span></div>'

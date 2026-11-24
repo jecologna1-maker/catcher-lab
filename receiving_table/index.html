@@ -120,7 +120,7 @@
 
   function format(value, index, summary = false) {
     if (!Number.isFinite(value)) return "—";
-    if (["50/50 Strike Rate", "50/50%"].includes(headers[index])) return `${decimal.format(value)}%`;
+    if (["50/50 Strike Rate", "50/50%", "Block Rate"].includes(headers[index])) return `${decimal.format(value)}%`;
     return (!summary && integerColumns.includes(headers[index]) ? whole : decimal).format(value);
   }
 
@@ -271,7 +271,7 @@
         const expected = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[1] ?? 0), 0);
         totals[rateIndex] = expected ? actual / expected * 100 : NaN;
       }
-      for (const name of ["50/50 Strike Rate", "50/50%", "Win+", "Gimme+"]) {
+      for (const name of ["50/50 Strike Rate", "50/50%", "Win+", "Gimme+", "Block Rate", "Routine+", "Extended+", "Difficult+"]) {
         const index = headers.indexOf(name);
         if (index < 0) continue;
         const parts = pinned.map(row => row.bandTotalsByMetric?.[name] || row.bandTotals || [0, 0]);

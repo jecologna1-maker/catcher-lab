@@ -7,6 +7,7 @@ import requests
 from datetime import date
 from io import StringIO
 from pathlib import Path
+from unicodedata import combining, normalize
 from streamlit.components.v1 import declare_component
 
 from blocking_stats import (
@@ -97,7 +98,7 @@ def show_results(df, identity_columns, filename, widget_key, filters):
     )
 
 
-def show_blocking(season, search, qualification):
+def show_blocking(season, qualification):
     if season != 2026:
         st.info("Blocking is available for the 2026 regular season.")
         return
@@ -141,8 +142,6 @@ def show_blocking(season, search, qualification):
         totals = totals.reindex(frame["catcher_id"])
         frame[metric] = (100 * totals["actual"] / totals["denominator"]).to_numpy()
     qualified = frame
-    if search:
-        frame = frame.loc[frame["player"].str.contains(search, case=False, regex=False, na=False)]
     columns = {
         "player": "Player",
         "opportunities": "Block Opportunities",
@@ -160,20 +159,20 @@ def show_blocking(season, search, qualification):
         "probability first. Missed Blocks opens only scored wild pitches and passed balls."
     )
     show_catcher_table(
-        frame, qualified, columns, season, minimum, search, category="Blocking",
+        frame, qualified, columns, season, minimum, category="Blocking",
         integer_columns=["Block Opportunities", "Missed Blocks"], review=show_blocking_review, bands=rates,
     )
 
 
-def show_leaderboard(season, search, category_control, qualification, extra_filters):
+def show_leaderboard(season, category_control, qualification, extra_filters):
     category = category_control.selectbox("Category", ["Receiving", "Blocking", *DATASETS])
     st.header(f"{season} MLB {category}")
     if category == "Blocking":
-        show_blocking(season, search, qualification)
+        show_blocking(season, qualification)
         return
     if category == "Receiving":
         if has_receiving_data(season):
-            show_sl_plus(search, season, qualification)
+            show_sl_plus(season, qualification)
         else:
             st.info(f"Catcher Lab receiving scores are unavailable for the {season} season.")
         return
@@ -201,15 +200,6 @@ def show_leaderboard(season, search, category_control, qualification, extra_filt
         if selected:
             df = df[df[team_column].isin(selected)]
 
-    if search and name_column is not None:
-        names = df[name_column].astype("string")
-        parts = names.str.partition(", ")
-        first_last = (parts[2] + " " + parts[0]).str.strip()
-        df = df[
-            names.str.contains(search, case=False, regex=False, na=False)
-            | first_last.str.contains(search, case=False, regex=False, na=False)
-        ]
-
     show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}", extra_filters)
 
 
@@ -224,7 +214,7 @@ def decisive_pitch_counts(season, data_version):
     return pitches.loc[pitches["expected"].between(0.05, 0.95)].groupby("fielder_2").size()
 
 
-def show_sl_plus(search, season, qualification):
+def show_sl_plus(season, qualification):
     st.subheader("Catcher jcSL+")
     st.caption(
         f"{season} regular season. 100 × actual called strikes ÷ expected called strikes. "
@@ -270,8 +260,6 @@ def show_sl_plus(search, season, qualification):
         totals = totals.reindex(df["catcher_id"])
         df[metric] = (100 * totals["actual"] / totals["denominator"]).to_numpy()
     qualified = df
-    if search:
-        df = df.loc[df["player"].str.contains(search, case=False, regex=False, na=False)]
     df = df.sort_values("SL+", ascending=False)
     columns = {
         "player": "Player",
@@ -287,12 +275,12 @@ def show_sl_plus(search, season, qualification):
         "Win+ (24.9% and below) and Gimme+ (75.1% and above) compare actual to expected strikes."
     )
     show_catcher_table(
-        df, qualified, columns, season, minimum, search, category="Receiving",
+        df, qualified, columns, season, minimum, category="Receiving",
         integer_columns=["Decisive Pitches"], review=show_framing_review, bands=bands,
     )
 
 
-def show_catcher_table(df, qualified, columns, season, minimum, search, *, category, integer_columns, review, bands=None):
+def show_catcher_table(df, qualified, columns, season, minimum, *, category, integer_columns, review, bands=None):
     results = df[list(columns)].rename(columns=columns)
     rate_columns = (
         ["called_strikes", "expected_strikes"] if category == "Receiving"
@@ -324,7 +312,7 @@ def show_catcher_table(df, qualified, columns, season, minimum, search, *, categ
     event = receiving_table(
         rows=rows, headers=list(results.columns), benchmarks=benchmarks, default=None,
         table_label=f"{category} Leaderboard", integer_columns=integer_columns,
-        key=f"{category}_{season}_{minimum}_{search}",
+        key=f"{category}_{season}_{minimum}",
     )
     event_key = f"last_{category}_click"
     if event and event != st.session_state.get(event_key):
@@ -468,6 +456,7 @@ def query_number(name):
 
 
 requested_season = query_number("season")
+default_season = requested_season if requested_season in SEASONS else SEASONS[0]
 views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard", "Glossary"]
 requested_view = st.query_params.get("view")
 default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles", "glossary": "Glossary"}.get(
@@ -475,9 +464,37 @@ default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles", "
 )
 if pending := st.session_state.pop("pending_profile", None):
     open_catcher_profile(*pending)
+def normalize_player_name(name):
+    return "".join(char for char in normalize("NFKD", name.casefold()) if not combining(char))
+
+
+def player_matches(season, query):
+    names = pd.read_csv(
+        Path(__file__).with_name(f"sl_plus_{season}.csv"), usecols=["catcher_id", "player"],
+    )
+    normalized = names["player"].map(normalize_player_name)
+    query = normalize_player_name(query)
+    matches = names.loc[normalized.eq(query)]
+    if matches.empty:
+        matches = names.loc[normalized.str.contains(query, regex=False)]
+    return matches.set_index("catcher_id")["player"].sort_values()
+
+
 def search_players():
-    if st.session_state["player_search"].strip():
-        st.session_state["catcher_nav"] = "Leaderboards"
+    query = st.session_state["player_search"].strip()
+    if query:
+        season = st.session_state.get("active_catcher_season", default_season)
+        matches = player_matches(season, query)
+        if len(matches) == 1:
+            open_catcher_profile(int(matches.index[0]), season)
+            st.session_state["player_search"] = ""
+
+
+def open_search_result(season):
+    catcher = st.session_state.get("player_search_result")
+    if catcher is not None:
+        open_catcher_profile(int(catcher), season)
+        st.session_state["player_search"] = ""
 
 
 with st.container(key="catcher_top_band"):
@@ -492,9 +509,20 @@ with st.container(key="catcher_top_band"):
             '</header>'
         )
     search = player_search.text_input(
-        "Player Search", placeholder="Search by player name", key="player_search",
+        "Player Search", placeholder="Find a catcher’s profile", key="player_search",
         on_change=search_players,
     ).strip()
+    if search:
+        search_season = st.session_state.get("active_catcher_season", default_season)
+        matches = player_matches(search_season, search)
+        if matches.empty:
+            player_search.caption(f"No catcher profiles match “{search}” in {search_season}.")
+        else:
+            player_search.selectbox(
+                "Matching catcher profiles", matches.index.tolist(), index=None,
+                format_func=matches.get, placeholder="Open a catcher profile",
+                key="player_search_result", on_change=open_search_result, args=(search_season,),
+            )
 
 view = st.radio(
     "View", views, index=views.index(default_view), horizontal=True,
@@ -506,14 +534,15 @@ if view != "Glossary":
         season_control, category_control, qualification = st.columns([1, 1, 2], gap="small")
         season = season_control.selectbox(
             "Season", SEASONS,
-            index=SEASONS.index(requested_season) if requested_season in SEASONS else 0,
+            index=SEASONS.index(st.session_state.get("active_catcher_season", default_season)),
             key="catcher_season",
         )
+        st.session_state["active_catcher_season"] = season
         extra_filters = st.container()
 
 try:
     if view == "Leaderboards":
-        show_leaderboard(season, search, category_control, qualification, extra_filters)
+        show_leaderboard(season, category_control, qualification, extra_filters)
     elif view == "Pitch Search":
         show_pitch_search(season, extra_filters)
     elif view == "Catcher Profiles":

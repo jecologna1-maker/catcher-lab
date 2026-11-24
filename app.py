@@ -11,7 +11,7 @@ from streamlit.components.v1 import declare_component
 
 from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
 from sl_plus_leaderboard import show_sl_plus_leaderboard
-from framing_video_review import show_framing_review
+from framing_video_review import show_blocking_review, show_framing_review
 
 st.set_page_config(
     page_title="Catcher Lab",
@@ -42,7 +42,6 @@ def open_catcher_profile(catcher, season):
 
 
 DATASETS = {
-    "Blocking": "catcher-blocking",
     "Throwing": "catcher-throwing",
     "Pop Time": "poptime"
 }
@@ -103,16 +102,16 @@ def show_results(df, identity_columns, filename, widget_key):
     )
 
 
-def show_dirt_blocking(season, search):
+def show_blocking(season, search):
     if season != 2026:
-        st.info("Dirt Blocking is available for the 2026 regular season.")
+        st.info("Blocking is available for the 2026 regular season.")
         return
 
     st.caption(
         "Tracked pitches projected to touch dirt by six inches behind the back of the batter’s box, "
         "with a runner on base or a chance for the batter to reach on an uncaught third strike."
     )
-    with st.expander("How Dirt Blocking is calculated"):
+    with st.expander("How blocking is calculated"):
         st.write(
             "The pitch trajectory estimates where the ball would touch the ground. "
             "The model estimates the chance of a scored wild pitch or passed ball from "
@@ -137,16 +136,23 @@ def show_dirt_blocking(season, search):
         "actual_misplays": "Actual WP + PB",
         "expected_misplays": "Expected WP + PB",
     }
-    frame = frame.sort_values("blocks_above_average", ascending=False)[list(columns)].rename(columns=columns)
-    show_results(frame.round(2), ["Player"], f"dirt_blocking_{season}.csv", "dirt_blocking_columns")
+    frame = frame.sort_values("blocks_above_average", ascending=False)
+    st.caption(
+        "Select a player for their profile or a number to review their blocking pitches "
+        "from lowest to highest WP/PB probability."
+    )
+    show_catcher_table(
+        frame, columns, season, minimum, search, category="Blocking",
+        integer_columns=["Dirt Opportunities", "Actual WP + PB"], review=show_blocking_review,
+    )
 
 
 def show_leaderboard(season):
-    category = st.sidebar.radio("Category", ["Receiving", "Dirt Blocking", *DATASETS])
+    category = st.sidebar.radio("Category", ["Receiving", "Blocking", *DATASETS])
     search = st.sidebar.text_input("Search player").strip()
     st.header(f"{season} MLB {category}")
-    if category == "Dirt Blocking":
-        show_dirt_blocking(season, search)
+    if category == "Blocking":
+        show_blocking(season, search)
         return
     if category == "Receiving":
         if has_receiving_data(season):
@@ -237,11 +243,18 @@ def show_sl_plus(search, season):
         "SLAA": "jcSLAA",
         "Framing Runs Above Average": "jcFRAA",
     }
-    results = df[list(columns)].rename(columns=columns)
     st.caption(
         "Select a player for their profile or a number to review pitches "
         "with 5%–95% called-strike probability."
     )
+    show_catcher_table(
+        df, columns, season, minimum, search, category="Receiving",
+        integer_columns=["Total Pitches"], review=show_framing_review,
+    )
+
+
+def show_catcher_table(df, columns, season, minimum, search, *, category, integer_columns, review):
+    results = df[list(columns)].rename(columns=columns)
     rows = [
         {
             "id": int(catcher),
@@ -252,10 +265,12 @@ def show_sl_plus(search, season):
     ]
     event = receiving_table(
         rows=rows, headers=list(results.columns), default=None,
-        key=f"receiving_{season}_{minimum}_{search}",
+        table_label=f"{category} Leaderboard", integer_columns=integer_columns,
+        key=f"{category}_{season}_{minimum}_{search}",
     )
-    if event and event != st.session_state.get("last_receiving_click"):
-        st.session_state["last_receiving_click"] = event
+    event_key = f"last_{category}_click"
+    if event and event != st.session_state.get(event_key):
+        st.session_state[event_key] = event
         matching = df.loc[df["catcher_id"].eq(event["catcher"])]
         if not matching.empty:
             row = matching.iloc[0]
@@ -264,10 +279,11 @@ def show_sl_plus(search, season):
                 st.session_state["pending_profile"] = (int(row["catcher_id"]), season)
                 st.rerun()
             elif column in results.columns:
-                show_framing_review(int(row["catcher_id"]), row["player"], column, season)
+                review(int(row["catcher_id"]), row["player"], column, season)
+    report = "framing" if category == "Receiving" else "blocking"
     st.download_button(
         "Download CSV", results.round(2).to_csv(index=False),
-        file_name=f"catcher_framing_{season}.csv", mime="text/csv",
+        file_name=f"catcher_{report}_{season}.csv", mime="text/csv",
     )
 
 

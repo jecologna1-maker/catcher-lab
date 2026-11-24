@@ -27,6 +27,7 @@ FIELDS = [
     *KEY, "game_type", "game_date", "fielder_2", "description", "plate_x",
     "plate_z", "vy0", "vz0", "ay", "az", "pfx_x", "pfx_z", "release_speed",
     "stand", "p_throws", "strikes", "outs_when_up", "on_1b", "on_2b", "on_3b",
+    "batter", "balls", "pitch_type", "pitch_name", "sz_bot", "sz_top",
 ]
 
 
@@ -154,6 +155,15 @@ def main():
     print(f"{matched}/{len(misplays)} official misplays matched; {len(chances):,} qualifying chances; "
           f"{chances['misplay'].sum():,} official misplays in the dirt-only set")
     chances["expected_misplays"] = cross_fit(chances)
+    review = chances[KEY + [
+        "game_date", "fielder_2", "batter", "balls", "strikes", "pitch_type",
+        "pitch_name", "p_throws", "stand", "plate_x", "misplay", "expected_misplays",
+    ]].copy()
+    review["zone_height"] = (
+        (chances["plate_z"] - chances["sz_bot"]) / (chances["sz_top"] - chances["sz_bot"])
+    ).where(chances["sz_top"].gt(chances["sz_bot"]))
+    review["runners_on"] = chances[["on_1b", "on_2b", "on_3b"]].notna().any(axis=1)
+    review.to_parquet(Path(__file__).with_name("blocking_pitches_2026.parquet"), index=False)
     summaries = chances.groupby(chances["fielder_2"].astype(int)).agg(
         opportunities=("misplay", "size"), actual_misplays=("misplay", "sum"),
         expected_misplays=("expected_misplays", "sum"),

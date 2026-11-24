@@ -1,4 +1,7 @@
 from datetime import date
+from pathlib import Path
+
+import pandas as pd
 
 import plotly.graph_objects as go
 import requests
@@ -24,10 +27,25 @@ def review_pitches(catcher, season=2026):
     ].sort_values(["game_date", *KEY_FIELDS], ascending=[False, True, True, True, True, True])
 
 
-def pitch_location_diagram(pitch):
+@st.cache_data(show_spinner=False)
+def load_blocking_pitches(season):
+    return pd.read_parquet(Path(__file__).with_name(f"blocking_pitches_{season}.parquet"))
+
+
+def blocking_review_pitches(catcher, season):
+    pitches = load_blocking_pitches(season)
+    return pitches.loc[pitches["fielder_2"].eq(catcher)].sort_values(
+        ["expected_misplays", "game_date", *KEY_FIELDS],
+        ascending=[True, False, *([True] * len(KEY_FIELDS))],
+    )
+
+
+def pitch_location_diagram(pitch, *, favorable=None):
     """Plot plate coordinates and batter-relative zone height from the catcher’s view."""
     half_plate = 17 / 24
     x, height = pitch.plate_x, pitch.zone_height
+    if favorable is None:
+        favorable = pitch.called
     figure = go.Figure()
     figure.add_shape(
         type="rect", x0=-half_plate, x1=half_plate, y0=0, y1=1,
@@ -46,7 +64,7 @@ def pitch_location_diagram(pitch):
     figure.add_scatter(
         x=[x], y=[height], mode="markers", hoverinfo="skip",
         marker={
-            "size": 13, "color": "#d8b64c" if pitch.called else "#6b35a1",
+            "size": 13, "color": "#d8b64c" if favorable else "#6b35a1",
             "line": {"color": "#342044", "width": 1.5},
         },
     )
@@ -66,12 +84,32 @@ def pitch_location_diagram(pitch):
 def show_framing_review(catcher, player, metric, season=2026):
     st.subheader(player)
     st.caption(f"{metric} · 5%–95% called-strike probability · Newest games first")
-    pitches = review_pitches(catcher, season)
+    show_pitch_review(review_pitches(catcher, season), catcher, metric, season, blocking=False)
+
+
+@st.dialog("Blocking Pitch Review", width="large", on_dismiss=reset_framing_review)
+def show_blocking_review(catcher, player, metric, season):
+    st.subheader(player)
+    st.caption(f"{metric} · Lowest WP/PB probability first")
+    show_pitch_review(blocking_review_pitches(catcher, season), catcher, metric, season, blocking=True)
+
+
+def show_pitch_review(pitches, catcher, metric, season, *, blocking):
     if pitches.empty:
-        st.info("No pitches are available in this probability range.")
+        st.info("No pitches are available for review.")
         return
 
-    namespace = f"review_{st.session_state.get('framing_review_version', 0)}_{season}_{catcher}_{metric}"
+    outcomes = (
+        {"No Scored Misplay": False, "Wild Pitch or Passed Ball": True}
+        if blocking else {"Called Ball": False, "Called Strike": True}
+    )
+    outcome_column = "misplay" if blocking else "called"
+    probability_column = "expected_misplays" if blocking else "expected"
+    probability_label = "WP/PB Probability" if blocking else "Called Strike Probability"
+    namespace = (
+        f"review_{blocking}_{st.session_state.get('framing_review_version', 0)}_"
+        f"{season}_{catcher}_{metric}"
+    )
 
     def reset_pitch():
         st.session_state.pop(f"{namespace}_pitch", None)
@@ -86,7 +124,7 @@ def show_framing_review(catcher, player, metric, season=2026):
                 key=f"{namespace}_dates", on_change=reset_pitch,
             )
             calls = st.pills(
-                "Call", ["Called Ball", "Called Strike"], selection_mode="multi",
+                "Outcome" if blocking else "Call", list(outcomes), selection_mode="multi",
                 key=f"{namespace}_calls", on_change=reset_pitch,
             )
             families = st.pills(
@@ -113,16 +151,19 @@ def show_framing_review(catcher, player, metric, season=2026):
     if len(dates) == 2:
         pitches = pitches.loc[pitches["game_date"].between(*(day.isoformat() for day in dates))]
     if calls:
-        pitches = pitches.loc[pitches["called"].isin([call == "Called Strike" for call in calls])]
+        pitches = pitches.loc[pitches[outcome_column].isin([outcomes[call] for call in calls])]
     pitches = filter_pitches(pitches, families, locations, pitchers, hitters, bases)
     if pitches.empty:
         st.info("No pitches match these filters.")
         return
 
+    outcome_labels = {value: label for label, value in outcomes.items()}
+
     def pitch_label(position):
         pitch = pitches.iloc[position]
-        call = "Called Strike" if pitch.called else "Called Ball"
-        return f"{position + 1:,}. {pitch.game_date} · {pitch.pitch_name} · {call} · {pitch.expected:.1%}"
+        call = outcome_labels[bool(pitch[outcome_column])]
+        return (f"{position + 1:,}. {pitch.game_date} · {pitch.pitch_name} · {call} · "
+                f"{pitch[probability_column]:.1%}")
 
     pitch_widget = f"{namespace}_pitch"
 
@@ -159,15 +200,18 @@ def show_framing_review(catcher, player, metric, season=2026):
         if play_id:
             st.link_button("Open on Baseball Savant", savant_clip_url(play_id))
     with details:
-        call = "Called Strike" if pitch.called else "Called Ball"
+        outcome = bool(pitch[outcome_column])
+        call = outcome_labels[outcome]
         st.markdown(f"**{call} · {pitch.pitch_name}**")
         st.text(f"Date  {pitch.game_date}")
         st.text(f"Pitcher  {pitcher or 'Unavailable'}")
         st.text(f"Hitter  {hitter or f'MLB ID {pitch.batter}'}")
         st.text(f"Count  {pitch.balls}-{pitch.strikes}")
-        st.text(f"Called Strike Probability  {pitch.expected:.1%}")
-        st.caption("Pitch Location · Catcher’s View")
-        st.plotly_chart(
-            pitch_location_diagram(pitch), config={"displayModeBar": False, "staticPlot": True},
-            key=f"{namespace}_location_chart",
-        )
+        st.text(f"{probability_label}  {pitch[probability_column]:.1%}")
+        if pd.notna(pitch.zone_height):
+            st.caption("Pitch Location · Catcher’s View")
+            st.plotly_chart(
+                pitch_location_diagram(pitch, favorable=outcome != blocking),
+                config={"displayModeBar": False, "staticPlot": True},
+                key=f"{namespace}_location_chart",
+            )

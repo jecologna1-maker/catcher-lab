@@ -271,7 +271,7 @@
         const expected = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[1] ?? 0), 0);
         totals[rateIndex] = expected ? actual / expected * 100 : NaN;
       }
-      for (const name of ["50/50 Strike Rate", "50/50%", "Win+", "Loss+"]) {
+      for (const name of ["50/50 Strike Rate", "50/50%", "Win+", "Gimme+"]) {
         const index = headers.indexOf(name);
         if (index < 0) continue;
         const parts = pinned.map(row => row.bandTotalsByMetric?.[name] || row.bandTotals || [0, 0]);

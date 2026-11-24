@@ -101,41 +101,44 @@ def heat_map(pitches, overlay=None, hitter=None):
         return smooth_x @ grid @ smooth_z.T
 
     support = density()
-    denominator = np.where(support > 0, support, 1)
-    actual = density(pitches["called"].astype(float)) / denominator
-    expected = density(pitches["expected"]) / denominator
+    actual = density(pitches["called"].astype(float))
+    expected = density(pitches["expected"])
+    jcsl = np.divide(100 * actual, expected, out=np.full_like(expected, 100.0), where=expected > 0)
     palette = [
-        (0.00, "#243ba3"), (0.20, "#2b83cb"), (0.38, "#71d7d3"),
-        (0.50, "#dcf0c4"), (0.62, "#f6d55e"), (0.80, "#ef8a40"),
-        (1.00, "#b83431"),
+        (0.00, "#503068"), (0.25, "#9e76b1"), (0.50, "#f5f1f3"),
+        (0.72, "#f4d280"), (1.00, "#aa5d17"),
     ]
-    difference = actual - expected
-    color_index = (difference + 0.15) / 0.30
+    color_min, color_max = 70, 130
+    color_index = (jcsl - color_min) / (color_max - color_min)
     stops = [stop for stop, _ in palette]
     colors = np.array([
         [int(color[channel:channel + 2], 16) for channel in (1, 3, 5)]
         for _, color in palette
     ])
     rgb = [np.interp(color_index, stops, channel) for channel in colors.T]
-    alpha = 255 * np.clip((support - 3) / 18, 0, 1)
+    # Fade sparse areas and locations where the expected-strike denominator is tiny.
+    opacity = np.minimum(np.clip((support - 3) / 18, 0, 1), np.clip((expected - 2) / 8, 0, 1))
+    alpha = 255 * opacity
     pixels = np.stack([*rgb, alpha], axis=-1).transpose(1, 0, 2)[::-1].astype("uint8")
     surface = Image.fromarray(pixels).resize((600, 660), Image.Resampling.BILINEAR)
     figure = go.Figure(go.Heatmap(
-        x=x, y=z, z=np.where(support >= 3, difference, np.nan).T,
+        x=x, y=z, z=np.where(opacity > 0, jcsl, np.nan).T,
         opacity=0.001, hoverongaps=False,
         customdata=np.stack([actual.T, expected.T, support.T], axis=-1),
         colorscale=palette,
-        zmin=-0.15, zmax=0.15,
+        zmin=color_min, zmax=color_max,
         colorbar={
-            "title": "Called strikes<br>vs. expected",
-            "tickvals": [-0.15, -0.075, 0, 0.075, 0.15],
-            "ticktext": ["−15 pp", "−7.5 pp", "0", "+7.5 pp", "+15 pp"],
-            "len": 0.76, "thickness": 14,
+            "title": {"text": "jcSL+", "side": "top"},
+            "orientation": "h", "x": 0.5, "xanchor": "center",
+            "y": 1.02, "yanchor": "bottom",
+            "tickvals": [70, 85, 100, 115, 130],
+            "ticktext": ["≤70", "85", "100", "115", "≥130"],
+            "len": 0.66, "thickness": 12, "outlinewidth": 0,
         },
         hovertemplate=(
-            "Smoothed called strike rate %{customdata[0]:.1%}<br>"
-            "Smoothed expected rate %{customdata[1]:.1%}<br>"
-            "Actual minus expected %{z:+.1%}<br>"
+            "Local jcSL+ %{z:.1f}<br>"
+            "Weighted called strikes %{customdata[0]:.1f}<br>"
+            "Weighted expected strikes %{customdata[1]:.1f}<br>"
             "Weighted nearby takes %{customdata[2]:.1f}<extra></extra>"
         ),
     ))
@@ -171,11 +174,10 @@ def heat_map(pitches, overlay=None, hitter=None):
                 ],
                 hovertemplate="%{text}<extra></extra>",
             )
-    for width, color in ((4, "#102540"), (1.4, "#ffffff")):
-        figure.add_shape(
-            type="rect", x0=-HALF_PLATE, x1=HALF_PLATE, y0=0, y1=1,
-            line={"color": color, "width": width},
-        )
+    figure.add_shape(
+        type="rect", x0=-HALF_PLATE, x1=HALF_PLATE, y0=0, y1=1,
+        line={"color": "#4b2d62", "width": 3},
+    )
     figure.add_shape(
         type="path", path=home_plate_path(plate_front, 0.28),
         line={"color": "#64748b", "width": 1.5}, fillcolor="#e2e8f0",
@@ -190,11 +192,11 @@ def heat_map(pitches, overlay=None, hitter=None):
     figure.update_layout(
         template="plotly_white", paper_bgcolor="#ffffff", plot_bgcolor="#ffffff",
         font={"color": "#342044"},
-        height=chart_height, clickmode="event", hovermode="closest",
-        margin={"l": 40, "r": 10, "t": 24, "b": 45},
-        legend={"orientation": "h", "y": 1.04},
-        xaxis={"title": "Horizontal location (ft)", "range": [x_edges[0], x_edges[-1]]},
-        yaxis={"title": "Batter strike-zone height", "range": visible_y},
+        height=chart_height + 62, clickmode="event", hovermode="closest",
+        margin={"l": 12, "r": 12, "t": 86, "b": 45},
+        legend={"orientation": "h", "y": -0.01, "x": 0.5, "xanchor": "center", "yanchor": "top"},
+        xaxis={"visible": False, "range": [x_edges[0], x_edges[-1]]},
+        yaxis={"visible": False, "range": visible_y},
     )
     return figure
 
@@ -266,7 +268,7 @@ def show_catcher_profile(season, requested_catcher=None):
 def show_receiving_profile(profile):
     metrics = st.container(key="receiving_summary")
 
-    st.subheader("Called strikes by location")
+    st.subheader("jcSL+ by pitch location")
     hand_filters = st.columns(2)
     pitcher = hand_filters[0].selectbox("Pitcher handedness", HANDS, key="profile_pitcher")
     hitter = hand_filters[1].selectbox("Hitter handedness", HANDS, key="profile_hitter")
@@ -286,9 +288,9 @@ def show_receiving_profile(profile):
         strikes.metric("jcSLAA", f"{profile['slaa'].sum():+.2f}")
         runs.metric("jcFRAA", f"{profile['framing_runs_aa'].sum():+.2f}")
     st.caption(
-        "Warm colors show more called strikes than expected. Blue shows fewer. "
-        "The surface averages nearby takes that match your filters. "
-        "Height 0 is the bottom of the batter’s zone and 1 is the top."
+        "Gold shows more called strikes than expected, and purple shows fewer. "
+        "Local jcSL+ compares actual and expected strikes on nearby pitches that match your filters. "
+        "Areas with too few expected strikes fade out."
     )
     if location != "All locations":
         st.caption(
@@ -332,4 +334,4 @@ def show_receiving_profile(profile):
         config={"responsive": True, "displaylogo": False},
     )
     with st.container(width=690):
-        html('<style>body{margin:0} .scatterlayer{cursor:pointer}</style>' + contents, height=625)
+        html('<style>body{margin:0} .scatterlayer{cursor:pointer}</style>' + contents, height=figure.layout.height)

@@ -28,12 +28,14 @@ def review_pitches(catcher, season=2026):
 
 
 @st.cache_data(show_spinner=False)
-def load_blocking_pitches(season):
-    return pd.read_parquet(Path(__file__).with_name(f"blocking_pitches_{season}.parquet"))
+def load_blocking_pitches(path, version):
+    return pd.read_parquet(path)
 
 
 def blocking_review_pitches(catcher, season, *, actual_only=False):
-    pitches = load_blocking_pitches(season)
+    path = Path(__file__).with_name(f"blocking_pitches_{season}.parquet")
+    file = path.stat()
+    pitches = load_blocking_pitches(path, (file.st_mtime_ns, file.st_size))
     matching = pitches["fielder_2"].eq(catcher)
     if actual_only:
         matching &= pitches["misplay"]

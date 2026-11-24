@@ -6,7 +6,7 @@ import streamlit as st
 RECEIVING_BANDS = {
     "50/50%": (0.25, 0.75, "left", "25% to under 75%", "takes"),
     "Win+": (0.0, 0.249, "both", "24.9% and below", "expected"),
-    "Loss+": (0.751, 1.0, "both", "75.1% and above", "expected"),
+    "Gimme+": (0.751, 1.0, "both", "75.1% and above", "expected"),
 }
 
 

@@ -262,7 +262,7 @@ def show_sl_plus(search, season):
     st.caption(
         "Select a player for their profile or a number for pitch video and location "
         "50/50% is the actual strike rate from 25% to under 75% predicted probability. "
-        "Win+ (24.9% and below) and Loss+ (75.1% and above) compare actual to expected strikes."
+        "Win+ (24.9% and below) and Gimme+ (75.1% and above) compare actual to expected strikes."
     )
     show_catcher_table(
         df, qualified, columns, season, minimum, search, category="Receiving",

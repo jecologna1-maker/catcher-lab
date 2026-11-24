@@ -66,17 +66,17 @@ def pitch_location_diagram(pitch, *, favorable=None):
     figure = go.Figure()
     figure.add_shape(
         type="rect", x0=-half_plate, x1=half_plate, y0=0, y1=1,
-        fillcolor="#f2edf5", line={"color": "#503363", "width": 2},
+        layer="below", fillcolor="#f2edf5", line={"color": "#503363", "width": 2},
     )
     for y in (1 / 3, 2 / 3):
         figure.add_shape(type="line", x0=-half_plate, x1=half_plate, y0=y, y1=y,
-                         line={"color": "#cbbbd5", "width": 1})
+                         layer="below", line={"color": "#cbbbd5", "width": 1})
     for line_x in (-half_plate / 3, half_plate / 3):
         figure.add_shape(type="line", x0=line_x, x1=line_x, y0=0, y1=1,
-                         line={"color": "#cbbbd5", "width": 1})
+                         layer="below", line={"color": "#cbbbd5", "width": 1})
     figure.add_shape(
         type="path", path=home_plate_path(-0.34, 0.26),
-        fillcolor="#eee8f1", line={"color": "#503363", "width": 1},
+        layer="below", fillcolor="#eee8f1", line={"color": "#503363", "width": 1},
     )
     figure.add_scatter(
         x=[x], y=[height], mode="markers", hoverinfo="skip",

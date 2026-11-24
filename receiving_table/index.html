@@ -260,10 +260,11 @@
       addHeading(pinnedBody, "Pinned Comparison", columns);
       for (const row of pinned) playerRow(pinnedBody, row, ranks.get(row.id), columns, "pinned");
       const totals = headers.map((_, index) => index ? pinned.reduce((sum, row) => sum + row.values[index], 0) : 0);
-      const rateIndex = headers.indexOf("jcSL+");
+      const rateIndex = headers.findIndex(name => name === "jcSL+" || name === "Block+");
+      const totalsKey = headers[rateIndex] === "Block+" ? "blockTotals" : "strikeTotals";
       if (rateIndex >= 0) {
-        const actual = pinned.reduce((sum, row) => sum + (row.strikeTotals?.[0] ?? 0), 0);
-        const expected = pinned.reduce((sum, row) => sum + (row.strikeTotals?.[1] ?? 0), 0);
+        const actual = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[0] ?? 0), 0);
+        const expected = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[1] ?? 0), 0);
         totals[rateIndex] = expected ? actual / expected * 100 : NaN;
       }
       addSummary(pinnedBody, "Combined", columns, totals, true);

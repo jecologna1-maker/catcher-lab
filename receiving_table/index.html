@@ -119,6 +119,8 @@
   }
 
   function format(value, index, summary = false) {
+    if (!Number.isFinite(value)) return "—";
+    if (headers[index] === "50/50 Strike Rate") return `${decimal.format(value)}%`;
     return (!summary && integerColumns.includes(headers[index]) ? whole : decimal).format(value);
   }
 
@@ -238,6 +240,8 @@
     const ordered = [...rows].sort((left, right) => {
       const a = left.values[sort];
       const b = right.values[sort];
+      if (a == null && b != null) return 1;
+      if (b == null && a != null) return -1;
       const comparison = sort === 0 ? a.localeCompare(b) : a - b;
       return (ascending ? comparison : -comparison) || left.values[0].localeCompare(right.values[0]);
     });
@@ -266,6 +270,12 @@
         const actual = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[0] ?? 0), 0);
         const expected = pinned.reduce((sum, row) => sum + (row[totalsKey]?.[1] ?? 0), 0);
         totals[rateIndex] = expected ? actual / expected * 100 : NaN;
+      }
+      const bandIndex = headers.indexOf("50/50 Strike Rate");
+      if (bandIndex >= 0) {
+        const strikes = pinned.reduce((sum, row) => sum + (row.bandTotals?.[0] ?? 0), 0);
+        const takes = pinned.reduce((sum, row) => sum + (row.bandTotals?.[1] ?? 0), 0);
+        totals[bandIndex] = takes ? 100 * strikes / takes : NaN;
       }
       addSummary(pinnedBody, "Combined", columns, totals, true);
     }

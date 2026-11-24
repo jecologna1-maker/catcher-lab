@@ -24,15 +24,6 @@ st.set_page_config(
 )
 
 st.html(Path(__file__).with_name("catcher_lab.css"))
-st.html(
-    '<header class="catcher-brand" aria-label="Catcher Lab">'
-    '<span class="catcher-brand__mark" aria-hidden="true">JC</span>'
-    '<div class="catcher-brand__identity">'
-    '<span class="catcher-brand__name">Cologna Catching Development</span>'
-    '<h1>Catcher Lab</h1></div>'
-    '<span class="catcher-brand__product">MLB Catching Analytics</span>'
-    '</header>'
-)
 
 receiving_table = declare_component(
     "receiving_table", path=str(Path(__file__).with_name("receiving_table")),
@@ -90,9 +81,9 @@ def load_pitches(start, end):
     return pd.read_csv(StringIO(response.content.decode("utf-8-sig")))
 
 
-def show_results(df, identity_columns, filename, widget_key):
+def show_results(df, identity_columns, filename, widget_key, filters):
     statistics = [column for column in df.columns if column not in identity_columns]
-    visible = st.sidebar.multiselect(
+    visible = filters.multiselect(
         "Visible columns", statistics, default=statistics, key=widget_key
     )
     results = df[identity_columns + visible]
@@ -106,7 +97,7 @@ def show_results(df, identity_columns, filename, widget_key):
     )
 
 
-def show_blocking(season, search):
+def show_blocking(season, search, qualification):
     if season != 2026:
         st.info("Blocking is available for the 2026 regular season.")
         return
@@ -137,7 +128,7 @@ def show_blocking(season, search):
             f"{DIFFICULT_CUTOFF:.2%} and up. Each bucket contains about a third of the "
             "league’s expected misses. Each + score uses the Block+ formula within that bucket."
         )
-    minimum = st.sidebar.number_input("Minimum Block Opportunities", min_value=0, value=50, step=10)
+    minimum = qualification.number_input("Minimum Block Opportunities", min_value=0, value=50, step=10)
     frame = pd.read_csv(Path(__file__).with_name(f"dirt_blocking_{season}.csv"))
     frame = frame.loc[frame["opportunities"].ge(minimum)].copy()
     frame["blocks"] = frame["opportunities"] - frame["actual_misplays"]
@@ -174,16 +165,15 @@ def show_blocking(season, search):
     )
 
 
-def show_leaderboard(season):
-    category = st.sidebar.radio("Category", ["Receiving", "Blocking", *DATASETS])
-    search = st.sidebar.text_input("Search player").strip()
+def show_leaderboard(season, search, category_control, qualification, extra_filters):
+    category = category_control.selectbox("Category", ["Receiving", "Blocking", *DATASETS])
     st.header(f"{season} MLB {category}")
     if category == "Blocking":
-        show_blocking(season, search)
+        show_blocking(season, search, qualification)
         return
     if category == "Receiving":
         if has_receiving_data(season):
-            show_sl_plus(search, season)
+            show_sl_plus(search, season, qualification)
         else:
             st.info(f"Catcher Lab receiving scores are unavailable for the {season} season.")
         return
@@ -205,7 +195,7 @@ def show_leaderboard(season):
 
     if team_column is not None:
         teams = sorted(df[team_column].dropna().unique())
-        selected = st.sidebar.multiselect(
+        selected = extra_filters.multiselect(
             "Teams", teams, key=f"teams_{category}_{season}"
         )
         if selected:
@@ -220,7 +210,7 @@ def show_leaderboard(season):
             | first_last.str.contains(search, case=False, regex=False, na=False)
         ]
 
-    show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}")
+    show_results(df, identity_columns, f"{category}_{season}.csv", f"columns_{category}", extra_filters)
 
 
 
@@ -234,7 +224,7 @@ def decisive_pitch_counts(season, data_version):
     return pitches.loc[pitches["expected"].between(0.05, 0.95)].groupby("fielder_2").size()
 
 
-def show_sl_plus(search, season):
+def show_sl_plus(search, season, qualification):
     st.subheader("Catcher jcSL+")
     st.caption(
         f"{season} regular season. 100 × actual called strikes ÷ expected called strikes. "
@@ -266,7 +256,7 @@ def show_sl_plus(search, season):
             f"Brier score improved from {baseline['brier']:.4f} to {challenger['brier']:.4f}. "
             "Lower scores indicate more accurate probabilities."
         )
-    minimum = st.sidebar.number_input(
+    minimum = qualification.number_input(
         "Minimum Decisive Pitches Received", min_value=0, value=500, step=50,
         help="Decisive pitches are takes with a 5% through 95% predicted called-strike probability.",
     )
@@ -375,12 +365,12 @@ PITCH_COLUMNS = {
 }
 
 
-def show_pitch_search(season):
+def show_pitch_search(season, extra_filters):
     st.header(f"{season} Statcast Pitch Search")
     st.caption("Regular-season pitches. Choose a date range of up to 7 days.")
 
     default_pitch_day = date(season, 7, 23) if season == 2020 else date(season, 6, 1)
-    with st.sidebar.form(f"pitch_dates_{season}"):
+    with extra_filters.form(f"pitch_dates_{season}"):
         dates = st.date_input(
             "Game dates",
             value=(default_pitch_day, default_pitch_day),
@@ -416,7 +406,7 @@ def show_pitch_search(season):
     pitches = pitches[list(PITCH_COLUMNS)].rename(columns=PITCH_COLUMNS)
     for column in ("Fielding team", "Catcher MLB ID", "Pitch type", "Pitch result"):
         choices = sorted(pitches[column].dropna().unique())
-        selected = st.sidebar.multiselect(
+        selected = extra_filters.multiselect(
             column, choices, key=f"{start}_{end}_{column}"
         )
         if selected:
@@ -426,7 +416,7 @@ def show_pitch_search(season):
         pitches,
         ["Game date", "Catcher MLB ID", "Fielding team"],
         f"statcast_pitches_{start}_{end}.csv",
-        "pitch_columns",
+        "pitch_columns", extra_filters,
     )
 
 
@@ -477,11 +467,7 @@ def query_number(name):
     return int(value) if value.isascii() and value.isdecimal() and len(value) <= 10 else None
 
 
-st.sidebar.header("Filters")
 requested_season = query_number("season")
-season = st.sidebar.selectbox(
-    "Season", SEASONS, index=SEASONS.index(requested_season) if requested_season in SEASONS else 0,
-)
 views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard", "Glossary"]
 requested_view = st.query_params.get("view")
 default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles", "glossary": "Glossary"}.get(
@@ -489,18 +475,52 @@ default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles", "
 )
 if pending := st.session_state.pop("pending_profile", None):
     open_catcher_profile(*pending)
+def search_players():
+    if st.session_state["player_search"].strip():
+        st.session_state["catcher_nav"] = "Leaderboards"
+
+
+with st.container(key="catcher_top_band"):
+    identity, player_search = st.columns([2, 1], gap="small", vertical_alignment="center")
+    with identity:
+        st.html(
+            '<header class="catcher-brand" aria-label="Catcher Lab">'
+            '<span class="catcher-brand__mark" aria-hidden="true">JC</span>'
+            '<div class="catcher-brand__identity">'
+            '<span class="catcher-brand__name">Cologna Catching Development</span>'
+            '<h1>Catcher Lab</h1></div>'
+            '</header>'
+        )
+    search = player_search.text_input(
+        "Player Search", placeholder="Search by player name", key="player_search",
+        on_change=search_players,
+    ).strip()
+
 view = st.radio(
     "View", views, index=views.index(default_view), horizontal=True,
     label_visibility="collapsed", key="catcher_nav",
 )
 
+if view != "Glossary":
+    with st.container(key="catcher_top_filters"):
+        season_control, category_control, qualification = st.columns([1, 1, 2], gap="small")
+        season = season_control.selectbox(
+            "Season", SEASONS,
+            index=SEASONS.index(requested_season) if requested_season in SEASONS else 0,
+            key="catcher_season",
+        )
+        extra_filters = st.container()
+
 try:
     if view == "Leaderboards":
-        show_leaderboard(season)
+        show_leaderboard(season, search, category_control, qualification, extra_filters)
     elif view == "Pitch Search":
-        show_pitch_search(season)
+        show_pitch_search(season, extra_filters)
     elif view == "Catcher Profiles":
-        show_catcher_profile(season, query_number("catcher") if requested_season == season else None)
+        show_catcher_profile(
+            season, query_number("catcher") if requested_season == season else None,
+            catcher_control=category_control,
+        )
     elif view == "Glossary":
         show_glossary()
     else:

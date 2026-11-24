@@ -240,7 +240,7 @@ def catcher_profile_url(season, catcher):
     return f"https://cologna-catcher-lab.streamlit.app/?view=catcher&season={season}&catcher={int(catcher)}"
 
 
-def show_catcher_profile(season, requested_catcher=None):
+def show_catcher_profile(season, requested_catcher=None, *, catcher_control=None):
     if not has_receiving_data(season):
         st.info(f"Catcher profiles are unavailable for the {season} season.")
         return
@@ -251,7 +251,7 @@ def show_catcher_profile(season, requested_catcher=None):
     profile_key = f"catcher_profile_{season}"
     if profile_key not in st.session_state and requested_catcher in player_ids:
         st.session_state[profile_key] = requested_catcher
-    catcher = st.sidebar.selectbox(
+    catcher = (catcher_control if catcher_control is not None else st).selectbox(
         "Catcher", player_ids,
         format_func=lambda player: roster.at[player, "player"], key=profile_key,
     )

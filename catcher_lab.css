@@ -400,3 +400,30 @@
         min-width: 0;
     }
 }
+
+/* Top navigation and filters */
+.st-key-catcher_top_band {
+    padding: .65rem .85rem;
+    border-radius: .75rem;
+    background: linear-gradient(112deg, #2c183b, #543367);
+}
+.st-key-catcher_top_band .catcher-brand {
+    border: 0;
+    padding: .2rem .25rem;
+    background: none;
+    box-shadow: none;
+}
+.st-key-catcher_top_band [data-testid="stWidgetLabel"] p { color: #f1deaa; }
+.st-key-catcher_top_filters {
+    background: #faf7fc;
+    border: 1px solid #e6ddec;
+    border-radius: .65rem;
+    padding: .55rem .75rem;
+}
+.st-key-catcher_top_filters [data-testid="stForm"] { padding: .5rem; }
+@media (max-width: 600px) {
+    .st-key-catcher_top_filters > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap;
+    }
+    .st-key-catcher_top_band { padding: .55rem .65rem; }
+}

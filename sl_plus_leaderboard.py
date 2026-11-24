@@ -192,8 +192,6 @@ def show_sl_plus_leaderboard(season):
         return
 
     with st.container(key="sl_workspace"):
-        filters, results = st.columns([1, 2.25], gap="medium")
-    with filters:
         ranking = st.radio("Ranking", ["Top 5", "Bottom 5"], horizontal=True, key="sl_ranking")
         with st.container(key="sl_filter_panel"):
             with st.expander("Pitch Filters", expanded=False):
@@ -230,7 +228,7 @@ def show_sl_plus_leaderboard(season):
     catchers, pitches = profile_data(season)
     matches = filter_pitches(pitches, families, locations, pitchers, hitters, base_states)
     ranked = rank_catchers(matches, minimum, bottom=bottom)
-    with results, st.container(border=True, key="sl_report"):
+    with st.container(border=True, key="sl_report"):
         if ranked.empty:
             st.info("No catchers meet the minimum for these filters.")
             return

@@ -8,7 +8,9 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from catcher_profiles import LOCATIONS, PITCH_FAMILIES, has_receiving_data, pitch_location_mask, profile_data
+from catcher_profiles import (
+    LOCATIONS, PITCH_FAMILIES, catcher_profile_url, has_receiving_data, pitch_location_mask, profile_data,
+)
 
 HANDEDNESS = {"Left": "L", "Right": "R"}
 BASE_STATES = {"Bases Empty": False, "Runners On Base": True}
@@ -254,7 +256,7 @@ def show_sl_plus_leaderboard(season):
                     f'<span class="sl-rank-position" aria-label="Rank {position}">{position:02d}</span>'
                     f'<img class="sl-player-photo" src="{photo}" alt="" width="46" height="46" loading="lazy">'
                     f'<div class="sl-ranked-player">'
-                    f'<h3>{name}</h3>'
+                    f'<h3><a href="{catcher_profile_url(season, catcher)}" target="_blank" rel="noopener">{name}</a></h3>'
                     f'<span>{int(row["takes"]):,} Takes · {int(row["actual"]):,} Called Strikes'
                     f' · {row["expected"]:,.1f} Expected</span>'
                     f'<span>{row["slaa"]:+.2f} jcSLAA · {row["framing_runs"]:+.2f} jcFRAA</span></div>'

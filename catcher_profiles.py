@@ -218,15 +218,24 @@ def show_stance_usage(catcher):
     )
 
 
-def show_catcher_profile(season):
+def catcher_profile_url(season, catcher):
+    return f"https://cologna-catcher-lab.streamlit.app/?view=catcher&season={season}&catcher={int(catcher)}"
+
+
+def show_catcher_profile(season, requested_catcher=None):
     if not has_receiving_data(season):
         st.info(f"Catcher profiles are unavailable for the {season} season.")
         return
 
     catchers, pitches = profile_data(season)
     roster = catchers.set_index("catcher_id")
+    player_ids = roster.index.tolist()
+    profile_key = f"catcher_profile_{season}"
+    if profile_key not in st.session_state and requested_catcher in player_ids:
+        st.session_state[profile_key] = requested_catcher
     catcher = st.sidebar.selectbox(
-        "Catcher", roster.index.tolist(), format_func=lambda player: roster.at[player, "player"]
+        "Catcher", player_ids,
+        format_func=lambda player: roster.at[player, "player"], key=profile_key,
     )
     player = roster.loc[catcher]
     profile = pitches.loc[pitches["fielder_2"].eq(catcher)]

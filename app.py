@@ -7,8 +7,9 @@ import requests
 from datetime import date
 from io import StringIO
 from pathlib import Path
+from streamlit.components.v1 import declare_component
 
-from catcher_profiles import has_receiving_data, show_catcher_profile
+from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
 from sl_plus_leaderboard import show_sl_plus_leaderboard
 from framing_video_review import show_framing_review
 
@@ -28,6 +29,17 @@ st.html(
     '<span class="catcher-brand__product">MLB Catching Analytics</span>'
     '</header>'
 )
+
+receiving_table = declare_component(
+    "receiving_table", path=str(Path(__file__).with_name("receiving_table")),
+)
+SEASONS = list(range(2026, 2019, -1))
+
+
+def open_catcher_profile(catcher, season):
+    st.session_state["catcher_nav"] = "Catcher Profiles"
+    st.session_state[f"catcher_profile_{season}"] = catcher
+
 
 DATASETS = {
     "Blocking": "catcher-blocking",
@@ -186,35 +198,32 @@ def show_sl_plus(search, season):
     }
     results = df[list(columns)].rename(columns=columns)
     st.caption(
-        "Total Pitches counts decisive called balls and called strikes. "
-        "Click any number to review pitches with 5%–95% called-strike probability."
+        "Select a player for their profile or a number to review pitches "
+        "with 5%–95% called-strike probability."
     )
-    # Streamlit's canvas table supports Styler colors but ignores CSS text-decoration.
-    # Apply the underline to the display text while keeping the underlying cells numeric.
-    def underlined_number(value, number_format):
-        return "".join(f"{character}\u0332" for character in format(value, number_format))
-
-    metric_columns = ["Total Pitches", "jcSL+", "jcSLAA", "jcFRAA"]
-    styled_results = results.style.set_properties(
-        subset=metric_columns, color="#6b35a1"
-    ).format({
-        "Total Pitches": lambda value: underlined_number(value, ",d"),
-        **{metric: lambda value: underlined_number(value, ".2f") for metric in metric_columns[1:]},
-    })
-    event = st.dataframe(
-        styled_results, hide_index=True, selection_mode="single-cell", on_select="rerun",
-        key=f"framing_table_{st.session_state.get('framing_review_version', 0)}_{season}_{minimum}_{search}",
-        column_config={
-            "Total Pitches": st.column_config.NumberColumn(
-                help="Decisive called balls and called strikes"
-            ),
-        },
+    rows = [
+        {
+            "id": int(catcher),
+            "profile": catcher_profile_url(season, catcher),
+            "values": list(values),
+        }
+        for catcher, values in zip(df["catcher_id"], results.itertuples(index=False, name=None))
+    ]
+    event = receiving_table(
+        rows=rows, headers=list(results.columns), default=None,
+        key=f"receiving_{season}_{minimum}_{search}",
     )
-    if event.selection.cells:
-        position, column = event.selection.cells[0]
-        if column != "Player" and position < len(df):
-            row = df.iloc[position]
-            show_framing_review(int(row["catcher_id"]), row["player"], column, season)
+    if event and event != st.session_state.get("last_receiving_click"):
+        st.session_state["last_receiving_click"] = event
+        matching = df.loc[df["catcher_id"].eq(event["catcher"])]
+        if not matching.empty:
+            row = matching.iloc[0]
+            column = event["column"]
+            if column == "Player":
+                st.session_state["pending_profile"] = (int(row["catcher_id"]), season)
+                st.rerun()
+            elif column in results.columns:
+                show_framing_review(int(row["catcher_id"]), row["player"], column, season)
     st.download_button(
         "Download CSV", results.round(2).to_csv(index=False),
         file_name=f"catcher_framing_{season}.csv", mime="text/csv",
@@ -296,10 +305,23 @@ def show_pitch_search(season):
     )
 
 
+def query_number(name):
+    value = st.query_params.get(name, "")
+    return int(value) if value.isascii() and value.isdecimal() and len(value) <= 10 else None
+
+
 st.sidebar.header("Filters")
-season = st.sidebar.selectbox("Season", list(range(2026, 2017, -1)), index=0)
+requested_season = query_number("season")
+season = st.sidebar.selectbox(
+    "Season", SEASONS, index=SEASONS.index(requested_season) if requested_season in SEASONS else 0,
+)
 views = ["Leaderboards", "Pitch Search", "Catcher Profiles", "jcSL+ Leaderboard"]
-default_view = "jcSL+ Leaderboard" if st.query_params.get("view") == "sl-plus" else "Leaderboards"
+requested_view = st.query_params.get("view")
+default_view = {"sl-plus": "jcSL+ Leaderboard", "catcher": "Catcher Profiles"}.get(
+    requested_view, "Leaderboards"
+)
+if pending := st.session_state.pop("pending_profile", None):
+    open_catcher_profile(*pending)
 view = st.radio(
     "View", views, index=views.index(default_view), horizontal=True,
     label_visibility="collapsed", key="catcher_nav",
@@ -311,7 +333,7 @@ try:
     elif view == "Pitch Search":
         show_pitch_search(season)
     elif view == "Catcher Profiles":
-        show_catcher_profile(season)
+        show_catcher_profile(season, query_number("catcher") if requested_season == season else None)
     else:
         show_sl_plus_leaderboard(season)
 except pd.errors.EmptyDataError:

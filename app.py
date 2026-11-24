@@ -10,7 +10,7 @@ from pathlib import Path
 from streamlit.components.v1 import declare_component
 
 from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
-from receiving_bands import RECEIVING_BANDS, receiving_band_totals
+from receiving_bands import receiving_band_totals
 from sl_plus_leaderboard import show_sl_plus_leaderboard
 from framing_video_review import show_blocking_review, show_framing_review
 
@@ -238,7 +238,8 @@ def show_sl_plus(search, season):
             "Lower scores indicate more accurate probabilities."
         )
     minimum = st.sidebar.number_input(
-        "Minimum eligible takes", min_value=0, value=200, step=50
+        "Minimum Decisive Pitches Received", min_value=0, value=500, step=50,
+        help="A decisive pitch is an eligible tracked take called a ball or a strike.",
     )
     df = pd.read_csv(Path(__file__).with_name(f"sl_plus_{season}.csv"))
     df = df.loc[df["eligible_takes"].ge(minimum)]
@@ -253,11 +254,11 @@ def show_sl_plus(search, season):
     df = df.sort_values("SL+", ascending=False)
     columns = {
         "player": "Player",
-        "eligible_takes": "Total Pitches",
+        "eligible_takes": "Decisive Pitches",
         "SL+": "jcSL+",
-        **{metric: metric for metric in RECEIVING_BANDS},
         "SLAA": "jcSLAA",
-        "Framing Runs Above Average": "jcFRAA",
+        "Framing Runs Above Average": "jcFRMAA",
+        **{metric: metric for metric in ("50/50%", "Gimme+", "Win+")},
     }
     st.caption(
         "Select a player for their profile or a number for pitch video and location "
@@ -266,7 +267,7 @@ def show_sl_plus(search, season):
     )
     show_catcher_table(
         df, qualified, columns, season, minimum, search, category="Receiving",
-        integer_columns=["Total Pitches"], review=show_framing_review, bands=bands,
+        integer_columns=["Decisive Pitches"], review=show_framing_review, bands=bands,
     )
 
 

@@ -146,7 +146,7 @@ def heat_map(pitches, overlay=None, hitter=None):
     )
     silhouette = hitter_silhouette()
     plate_front = -0.77
-    hitter_height = 2.40  # In units of the normalized, one-unit strike-zone height.
+    hitter_height = 2.72  # In units of the normalized, one-unit strike-zone height.
     # Catcher's perspective: a right-handed hitter stands on the viewer's left.
     for side, left, image in (("R", -2.48, silhouette), ("L", 0.88, ImageOps.mirror(silhouette))):
         if hitter is None or hitter == side:

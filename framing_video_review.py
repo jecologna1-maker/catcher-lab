@@ -85,10 +85,16 @@ def pitch_location_diagram(pitch, *, favorable=None):
         },
     )
     figure.update_layout(
-        height=190, margin={"l": 6, "r": 6, "t": 6, "b": 6},
+        height=245, margin={"l": 6, "r": 6, "t": 6, "b": 6},
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis={"visible": False, "range": PITCH_X_RANGE, "fixedrange": True},
-        yaxis={"visible": False, "range": PITCH_HEIGHT_RANGE, "fixedrange": True},
+        xaxis={
+            "visible": False, "range": PITCH_X_RANGE, "fixedrange": True,
+            "scaleanchor": "y", "scaleratio": 0.59, "constrain": "domain",
+        },
+        yaxis={
+            "visible": False, "range": PITCH_HEIGHT_RANGE, "fixedrange": True,
+            "constrain": "domain",
+        },
         dragmode=False, showlegend=False,
     )
     return figure

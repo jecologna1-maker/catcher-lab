@@ -240,42 +240,56 @@ def catcher_profile_url(season, catcher):
     return f"https://cologna-catcher-lab.streamlit.app/?view=catcher&season={season}&catcher={int(catcher)}"
 
 
-def show_catcher_profile(season, requested_catcher=None, *, catcher_control=None):
-    if not has_receiving_data(season):
-        st.info(f"Catcher profiles are unavailable for the {season} season.")
+@st.cache_data(max_entries=12)
+def load_catcher_season(catcher, season, data_version):
+    file = Path(__file__).with_name(f"catcher_pitches_{season}.parquet")
+    return pd.read_parquet(file, filters=[("fielder_2", "==", catcher)])
+
+
+def show_catcher_profile(year_range, catcher, filters):
+    if catcher is None:
+        st.info("Use Player Search to open a catcher’s profile.")
         return
 
-    catchers, pitches = profile_data(season)
-    roster = catchers.set_index("catcher_id")
-    player_ids = roster.index.tolist()
-    profile_key = f"catcher_profile_{season}"
-    if profile_key not in st.session_state and requested_catcher in player_ids:
-        st.session_state[profile_key] = requested_catcher
-    catcher = (catcher_control if catcher_control is not None else st).selectbox(
-        "Catcher", player_ids,
-        format_func=lambda player: roster.at[player, "player"], key=profile_key,
-    )
-    player = roster.loc[catcher]
-    profile = pitches.loc[pitches["fielder_2"].eq(catcher)]
-    st.header(player["player"])
-    st.caption(f"{season} regular season · Catcher profile")
-    show_receiving_profile(profile)
-    if season == 2026:
+    start, end = year_range
+    seasons = [season for season in range(start, end + 1) if has_receiving_data(season)]
+    player = None
+    slices = []
+    for season in seasons:
+        folder = Path(__file__).parent
+        roster = pd.read_csv(folder / f"sl_plus_{season}.csv").set_index("catcher_id")
+        if catcher in roster.index:
+            player = roster.at[catcher, "player"]
+            data = folder / f"catcher_pitches_{season}.parquet"
+            slices.append(load_catcher_season(catcher, season, data.stat().st_mtime_ns))
+    if not slices:
+        st.info("This catcher has no tracked pitches in the selected season range.")
+        return
+
+    profile = pd.concat(slices, ignore_index=True)
+    st.header(player)
+    label = str(start) if start == end else f"{start}–{end}"
+    st.caption(f"{label} regular season · Catcher profile")
+    show_receiving_profile(profile, filters)
+    if 2026 in seasons:
         with st.container(border=True, key="stance_panel"):
             show_stance_usage(catcher)
 
 
-def show_receiving_profile(profile):
-    metrics = st.container(key="receiving_summary")
-
-    st.subheader("jcSL+ by pitch location")
-    hand_filters = st.columns(2)
-    pitcher = hand_filters[0].selectbox("Pitcher handedness", HANDS, key="profile_pitcher")
-    hitter = hand_filters[1].selectbox("Hitter handedness", HANDS, key="profile_hitter")
-    pitch_filters = st.columns(2)
-    location = pitch_filters[0].selectbox("Pitch location", LOCATIONS)
-    family = pitch_filters[1].selectbox("Pitch family", PITCH_FAMILIES)
+def show_receiving_profile(profile, filters=None):
+    with (filters if filters is not None else st.container()):
+        pitcher_column, hitter_column, location_column, family_column = st.columns(4, gap="small")
+        pitcher = pitcher_column.selectbox("Pitcher handedness", HANDS, key="profile_pitcher")
+        hitter = hitter_column.selectbox("Hitter handedness", HANDS, key="profile_hitter")
+        location = location_column.selectbox("Pitch location", LOCATIONS)
+        family = family_column.selectbox("Pitch family", PITCH_FAMILIES)
+        show_overlay = st.toggle("Overlay individual pitches", key="show_pitch_overlay")
+        outcome = (
+            st.radio("Pitch outcome", ["All pitches", "Balls only", "Called strikes only"], horizontal=True)
+            if show_overlay else "All pitches"
+        )
     profile = filter_profile(profile, pitcher, hitter, location, family)
+    metrics = st.container(key="receiving_summary")
     actual = int(profile["called"].sum())
     expected = profile["expected"].astype("float64").sum()
     with metrics:
@@ -287,6 +301,7 @@ def show_receiving_profile(profile):
         strikes, runs = st.columns(2)
         strikes.metric("jcSLAA", f"{profile['slaa'].sum():+.2f}")
         runs.metric("jcFRAA", f"{profile['framing_runs_aa'].sum():+.2f}")
+    st.subheader("jcSL+ by pitch location")
     st.caption(
         "Gold shows more called strikes than expected, and purple shows fewer. "
         "Local jcSL+ compares actual and expected strikes on nearby pitches that match your filters. "
@@ -301,14 +316,11 @@ def show_receiving_profile(profile):
         st.info("No eligible takes match these filters.")
         st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True, theme=None)
         return
-    if not st.toggle("Overlay individual pitches", key="show_pitch_overlay"):
+    if not show_overlay:
         st.container(width=690).plotly_chart(heat_map(profile, hitter=HANDS[hitter]), use_container_width=True, theme=None)
         return
 
     overlay = profile.loc[profile["expected"].between(0.05, 0.95, inclusive="neither")].copy()
-    outcome = st.radio(
-        "Pitch outcome", ["All pitches", "Balls only", "Called strikes only"], horizontal=True
-    )
     if outcome != "All pitches":
         overlay = overlay.loc[overlay["called"].eq(outcome == "Called strikes only")]
     if overlay.empty:

@@ -34,7 +34,9 @@ SEASONS = list(range(2026, 2019, -1))
 
 def open_catcher_profile(catcher, season):
     st.session_state["catcher_nav"] = "Catcher Profiles"
-    st.session_state[f"catcher_profile_{season}"] = catcher
+    st.session_state["profile_catcher_id"] = catcher
+    if "profile_year_range" not in st.session_state:
+        st.session_state["profile_year_range"] = (season, season)
 
 
 DATASETS = {
@@ -468,10 +470,12 @@ def normalize_player_name(name):
     return "".join(char for char in normalize("NFKD", name.casefold()) if not combining(char))
 
 
-def player_matches(season, query):
-    names = pd.read_csv(
-        Path(__file__).with_name(f"sl_plus_{season}.csv"), usecols=["catcher_id", "player"],
-    )
+def player_matches(year_range, query):
+    start, end = year_range
+    names = pd.concat([
+        pd.read_csv(Path(__file__).with_name(f"sl_plus_{year}.csv"), usecols=["catcher_id", "player"])
+        for year in range(start, end + 1)
+    ]).drop_duplicates("catcher_id", keep="last")
     normalized = names["player"].map(normalize_player_name)
     query = normalize_player_name(query)
     matches = names.loc[normalized.eq(query)]
@@ -480,13 +484,20 @@ def player_matches(season, query):
     return matches.set_index("catcher_id")["player"].sort_values()
 
 
+def player_search_years():
+    season = st.session_state.get("active_catcher_season", default_season)
+    if st.session_state.get("catcher_nav") == "Catcher Profiles":
+        return st.session_state.get("profile_year_range", (season, season))
+    return season, season
+
+
 def search_players():
     query = st.session_state["player_search"].strip()
     if query:
-        season = st.session_state.get("active_catcher_season", default_season)
-        matches = player_matches(season, query)
+        years = player_search_years()
+        matches = player_matches(years, query)
         if len(matches) == 1:
-            open_catcher_profile(int(matches.index[0]), season)
+            open_catcher_profile(int(matches.index[0]), years[1])
             st.session_state["player_search"] = ""
 
 
@@ -513,15 +524,15 @@ with st.container(key="catcher_top_band"):
         on_change=search_players,
     ).strip()
     if search:
-        search_season = st.session_state.get("active_catcher_season", default_season)
-        matches = player_matches(search_season, search)
+        years = player_search_years()
+        matches = player_matches(years, search)
         if matches.empty:
-            player_search.caption(f"No catcher profiles match “{search}” in {search_season}.")
+            player_search.caption(f"No catcher profiles match “{search}” in the selected seasons.")
         else:
             player_search.selectbox(
                 "Matching catcher profiles", matches.index.tolist(), index=None,
                 format_func=matches.get, placeholder="Open a catcher profile",
-                key="player_search_result", on_change=open_search_result, args=(search_season,),
+                key="player_search_result", on_change=open_search_result, args=(years[1],),
             )
 
 view = st.radio(
@@ -529,7 +540,17 @@ view = st.radio(
     label_visibility="collapsed", key="catcher_nav",
 )
 
-if view != "Glossary":
+if view == "Catcher Profiles":
+    if "profile_year_range" not in st.session_state:
+        initial = st.session_state.get("active_catcher_season", default_season)
+        st.session_state["profile_year_range"] = (initial, initial)
+    with st.container(key="catcher_top_filters"):
+        profile_range = st.select_slider(
+            "Season Range", options=SEASONS[::-1], key="profile_year_range",
+            value=st.session_state["profile_year_range"],
+        )
+        profile_filters = st.container()
+elif view != "Glossary":
     with st.container(key="catcher_top_filters"):
         season_control, category_control, qualification = st.columns([1, 1, 2], gap="small")
         season = season_control.selectbox(
@@ -547,8 +568,8 @@ try:
         show_pitch_search(season, extra_filters)
     elif view == "Catcher Profiles":
         show_catcher_profile(
-            season, query_number("catcher") if requested_season == season else None,
-            catcher_control=category_control,
+            profile_range, st.session_state.get("profile_catcher_id", query_number("catcher")),
+            profile_filters,
         )
     elif view == "Glossary":
         show_glossary()

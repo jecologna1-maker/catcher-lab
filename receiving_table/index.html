@@ -32,6 +32,7 @@
 </div>
 <script>
   const grid = document.querySelector(".grid");
+  const table = document.querySelector("table");
   const head = document.querySelector("thead");
   const body = document.querySelector("tbody");
   const empty = document.querySelector(".empty");
@@ -41,6 +42,7 @@
   let headers = [];
   let sort = 2;
   let ascending = false;
+  let integerColumns = [];
 
   function notify(type, payload = {}) {
     window.parent.postMessage({isStreamlitMessage: true, type, ...payload}, "*");
@@ -98,7 +100,7 @@
         } else {
           const button = document.createElement("button");
           button.type = "button";
-          button.textContent = formats[Math.min(index, 2)].format(value);
+          button.textContent = formats[integerColumns.includes(headers[index]) ? 1 : 2].format(value);
           button.setAttribute("aria-label", `${row.values[0]}, ${headers[index]} ${button.textContent}. Review pitches`);
           button.addEventListener("click", () => choose(row, headers[index]));
           cell.append(button);
@@ -113,6 +115,8 @@
     const args = event.data.args;
     rows = args.rows;
     headers = args.headers;
+    integerColumns = args.integer_columns || [headers[1]];
+    table.setAttribute("aria-label", args.table_label || "Receiving Leaderboard");
     render();
   });
   new ResizeObserver(() => notify("streamlit:setFrameHeight", {height: grid.offsetHeight})).observe(grid);

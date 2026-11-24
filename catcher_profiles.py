@@ -181,6 +181,7 @@ def heat_map(pitches, overlay=None, hitter=None):
         line={"color": "#64748b", "width": 1.5}, fillcolor="#e2e8f0",
     )
     visible_y = [-1.15, plate_front + hitter_height + 0.10]
+    chart_height = round(69 + (615 - 69) * (visible_y[1] - visible_y[0]) / 3.20)
     if overlay is not None and not overlay.empty:
         visible_y = [
             min(visible_y[0], overlay["zone_height"].min() - 0.08),
@@ -189,7 +190,7 @@ def heat_map(pitches, overlay=None, hitter=None):
     figure.update_layout(
         template="plotly_white", paper_bgcolor="#ffffff", plot_bgcolor="#ffffff",
         font={"color": "#342044"},
-        height=615, clickmode="event", hovermode="closest",
+        height=chart_height, clickmode="event", hovermode="closest",
         margin={"l": 40, "r": 10, "t": 24, "b": 45},
         legend={"orientation": "h", "y": 1.04},
         xaxis={"title": "Horizontal location (ft)", "range": [x_edges[0], x_edges[-1]]},

@@ -1,6 +1,5 @@
 from datetime import date
 from html import escape
-from pathlib import Path
 
 import pandas as pd
 
@@ -8,6 +7,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+from blocking_stats import BLOCKING_BUCKETS, blocking_pitches
 from catcher_profiles import HALF_PLATE, LOCATIONS, PITCH_FAMILIES, home_plate_path, profile_data
 from receiving_bands import RECEIVING_BANDS, receiving_band_mask
 from sl_plus_leaderboard import (
@@ -29,18 +29,13 @@ def review_pitches(catcher, season=2026):
     ].sort_values(["game_date", *KEY_FIELDS], ascending=[False, True, True, True, True, True])
 
 
-@st.cache_data(show_spinner=False)
-def load_blocking_pitches(path, version):
-    return pd.read_parquet(path)
-
-
-def blocking_review_pitches(catcher, season, *, actual_only=False):
-    path = Path(__file__).with_name(f"blocking_pitches_{season}.parquet")
-    file = path.stat()
-    pitches = load_blocking_pitches(path, (file.st_mtime_ns, file.st_size))
+def blocking_review_pitches(catcher, season, *, actual_only=False, difficulty=None):
+    pitches = blocking_pitches(season)
     matching = pitches["fielder_2"].eq(catcher)
     if actual_only:
         matching &= pitches["misplay"]
+    if difficulty is not None:
+        matching &= pitches["difficulty"].eq(difficulty)
     return pitches.loc[matching].sort_values(
         ["expected_misplays", "game_date", *KEY_FIELDS],
         ascending=[True, False, *([True] * len(KEY_FIELDS))],
@@ -122,7 +117,10 @@ def show_framing_review(catcher, player, metric, season=2026):
 def show_blocking_review(catcher, player, metric, season):
     st.subheader(player)
     actual_only = metric == "Missed Blocks"
-    pitches = blocking_review_pitches(catcher, season, actual_only=actual_only)
+    pitches = blocking_review_pitches(
+        catcher, season, actual_only=actual_only,
+        difficulty=metric if metric in BLOCKING_BUCKETS else None,
+    )
     st.caption(f"{metric} · {len(pitches):,} pitches · Lowest WP/PB probability first")
     if actual_only and pitches.empty:
         st.info("No wild pitches or passed balls were scored on this catcher’s qualifying pitches.")

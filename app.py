@@ -9,6 +9,9 @@ from io import StringIO
 from pathlib import Path
 from streamlit.components.v1 import declare_component
 
+from blocking_stats import (
+    BLOCKING_BUCKETS, DIFFICULT_CUTOFF, ROUTINE_CUTOFF, blocking_pitches, blocking_rate_totals,
+)
 from catcher_profiles import catcher_profile_url, has_receiving_data, show_catcher_profile
 from receiving_bands import receiving_band_totals
 from sl_plus_leaderboard import show_sl_plus_leaderboard
@@ -123,10 +126,16 @@ def show_blocking(season, search):
         st.write(
             "Block+ is 100 × actual blocks ÷ expected blocks. A score of 100 means the catcher "
             "blocked as many pitches as expected. Missed Blocks counts scored wild pitches and "
-            "passed balls, and xMissed Blocks adds up their predicted probabilities. "
-            "Blocks Above Average is xMissed Blocks minus Missed Blocks. "
-            "A score of +5 means five fewer scored misplays than expected given the pitches received. "
-            "A pitch without a scored misplay can still have bounced away without anyone advancing."
+            "passed balls. xMiss adds up their predicted probabilities. "
+            "BLAA is xMiss minus Missed Blocks, and Miss Surplus is Missed Blocks minus xMiss. "
+            "Block Rate is the percentage of opportunities with no advancement recorded as a "
+            "wild pitch or passed ball."
+        )
+        st.write(
+            f"Routine+ uses risk below {ROUTINE_CUTOFF:.2%}, Extended+ uses "
+            f"{ROUTINE_CUTOFF:.2%} to below {DIFFICULT_CUTOFF:.2%}, and Difficult+ uses "
+            f"{DIFFICULT_CUTOFF:.2%} and up. Each bucket contains about a third of the "
+            "league’s expected misses. Each + score uses the Block+ formula within that bucket."
         )
     minimum = st.sidebar.number_input("Minimum Block Opportunities", min_value=0, value=50, step=10)
     frame = pd.read_csv(Path(__file__).with_name(f"dirt_blocking_{season}.csv"))
@@ -134,6 +143,12 @@ def show_blocking(season, search):
     frame["blocks"] = frame["opportunities"] - frame["actual_misplays"]
     frame["expected_blocks"] = frame["opportunities"] - frame["expected_misplays"]
     frame["block_plus"] = 100 * frame["blocks"] / frame["expected_blocks"]
+    frame["miss_surplus"] = frame["actual_misplays"] - frame["expected_misplays"]
+    frame["blocks_above_average"] = -frame["miss_surplus"]
+    rates = blocking_rate_totals(blocking_pitches(season))
+    for metric, totals in rates.items():
+        totals = totals.reindex(frame["catcher_id"])
+        frame[metric] = (100 * totals["actual"] / totals["denominator"]).to_numpy()
     qualified = frame
     if search:
         frame = frame.loc[frame["player"].str.contains(search, case=False, regex=False, na=False)]
@@ -141,9 +156,12 @@ def show_blocking(season, search):
         "player": "Player",
         "opportunities": "Block Opportunities",
         "block_plus": "Block+",
-        "blocks_above_average": "Blocks Above Average",
+        "blocks_above_average": "BLAA",
+        "Block Rate": "Block Rate",
         "actual_misplays": "Missed Blocks",
-        "expected_misplays": "xMissed Blocks",
+        "expected_misplays": "xMiss",
+        "miss_surplus": "Miss Surplus",
+        **{metric: metric for metric in BLOCKING_BUCKETS},
     }
     frame = frame.sort_values("block_plus", ascending=False)
     st.caption(
@@ -152,7 +170,7 @@ def show_blocking(season, search):
     )
     show_catcher_table(
         frame, qualified, columns, season, minimum, search, category="Blocking",
-        integer_columns=["Block Opportunities", "Missed Blocks"], review=show_blocking_review,
+        integer_columns=["Block Opportunities", "Missed Blocks"], review=show_blocking_review, bands=rates,
     )
 
 

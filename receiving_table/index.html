@@ -1,48 +1,93 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<title>Receiving Leaderboard</title>
+<title>Catcher Lab Leaderboard</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px system-ui, sans-serif; color: #292331; }
-  .grid { max-height: 450px; overflow: auto; border: 1px solid #e6e0ea; border-radius: .45rem; }
-  table { width: 100%; border-spacing: 0; background: white; }
-  th, td { text-align: center; padding: 0; border-bottom: 1px solid #e6e0ea; }
-  th { position: sticky; top: 0; background: #eee8f1; z-index: 1; }
-  tr:last-child td { border-bottom: 0; }
-  tbody tr:hover { background: #faf7fb; }
-  button, a { display: block; width: 100%; padding: .55rem .4rem; font: inherit; }
-  button { border: 0; background: none; cursor: pointer; }
-  th button { color: inherit; font-weight: 650; }
-  td button, td a { color: #6b35a1; text-decoration: underline; text-underline-offset: .14em; }
-  td:not(:first-child) { font-variant-numeric: tabular-nums; }
-  :focus-visible { outline: 2px solid #6b35a1; outline-offset: -2px; }
+  button, select, summary { font: inherit; }
+  button { cursor: pointer; }
+  .report { background: #fff; border: 1px solid #ded5e5; border-radius: .75rem; overflow: hidden; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; padding: .75rem; background: #f6f1fa; }
+  .toolbar label, .toolbar summary { font-weight: 650; color: #432958; }
+  .toolbar select, .toolbar summary { background: #fff; padding: .35rem .55rem; border: 1px solid #ded5e5; border-radius: .35rem; }
+  .toolbar details[open] { flex-basis: 100%; }
+  .column-options { display: flex; flex-wrap: wrap; gap: .5rem 1rem; padding-top: .5rem; }
+  .column-options input { accent-color: #6a398a; }
+  .results { margin-left: auto; font-size: .84rem; color: #5f5269; }
+  .grid { max-height: 510px; overflow: auto; }
+  table { width: 100%; min-width: 520px; border-spacing: 0; }
+  th, td { text-align: center; padding: .48rem .28rem; border-bottom: 1px solid #eee8f1; }
+  thead th { position: sticky; top: 0; z-index: 1; background: #492c60; color: white; }
+  th button, td button { color: inherit; background: transparent; border: 0; padding: .12rem .19rem; }
+  th button { font-weight: 650; }
+  th[aria-sort] { box-shadow: inset 0 -3px #e4bd62; }
+  td.sorted { background: #eee4f7; font-weight: 700; }
+  .rank { color: #65546f; width: 2.6rem; }
+  .pin-cell { width: 2.5rem; }
+  .pin { font-size: 1.12rem; color: #654379; min-width: 29px; }
+  .pin[aria-pressed="true"] { color: #7c5709; }
+  tbody.players tr:nth-child(even) { background: #f9f6fb; }
+  tbody.pinned tr { background: #fff7dd; }
+  tbody.benchmarks tr { background: #f6f0fa; }
+  tbody tr:hover td { box-shadow: inset 0 0 0 100px #6632810c; }
+  tr.section td { text-align: left; background: #fff; padding: .55rem .65rem .3rem; }
+  .section span { display: inline-block; padding: .16rem .55rem; font-size: .75rem; font-weight: 750; border-radius: 1rem; color: #4a2c62; background: #eee4f7; }
+  .pinned .section span { color: #6e4a04; background: #ffedb5; }
+  td button.metric, td a { color: #653397; text-decoration: underline; text-underline-offset: .14em; }
+  td { font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: 2px solid #b58126; outline-offset: 1px; }
   .empty { padding: 1rem; text-align: center; }
-  @media (max-width: 420px) {
-    body { font-size: 12px; }
-    button, a { padding-inline: .25rem; }
+  @media (max-width: 480px) {
+    body { font-size: 13px; }
+    .toolbar { padding: .55rem; gap: .45rem; }
+    .results { margin-left: 0; }
   }
 </style>
-<div class="grid">
-  <table aria-label="Receiving Leaderboard">
-    <thead></thead>
-    <tbody></tbody>
-  </table>
-  <div class="empty" hidden>No catchers match these filters.</div>
+<div class="report">
+  <div class="toolbar">
+    <label>View
+      <select id="report-view">
+        <option value="all">All Catchers</option>
+        <option value="pinned">Pinned Catchers</option>
+      </select>
+    </label>
+    <details>
+      <summary>Columns</summary>
+      <div class="column-options"></div>
+    </details>
+    <span class="results" role="status"></span>
+  </div>
+  <div class="grid" tabindex="0" aria-label="Scrollable leaderboard">
+    <table aria-label="Receiving Leaderboard">
+      <thead></thead>
+      <tbody class="benchmarks"></tbody>
+      <tbody class="pinned"></tbody>
+      <tbody class="players"></tbody>
+    </table>
+    <div class="empty" hidden></div>
+  </div>
 </div>
 <script>
-  const grid = document.querySelector(".grid");
+  const report = document.querySelector(".report");
   const table = document.querySelector("table");
-  const head = document.querySelector("thead");
-  const body = document.querySelector("tbody");
+  const head = table.tHead;
+  const [benchmarks, pinnedBody, playerBody] = table.tBodies;
   const empty = document.querySelector(".empty");
-  const formats = [null, new Intl.NumberFormat("en-US"),
-    new Intl.NumberFormat("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})];
+  const view = document.querySelector("#report-view");
+  const options = document.querySelector(".column-options");
+  const status = document.querySelector(".results");
+  const whole = new Intl.NumberFormat("en-US");
+  const decimal = new Intl.NumberFormat("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
   let rows = [];
+  let qualifiedStats = null;
   let headers = [];
+  let integerColumns = [];
+  let hidden = new Set();
+  let pins = new Set();
   let sort = 2;
   let ascending = false;
-  let integerColumns = [];
+  let reportName = "";
 
   function notify(type, payload = {}) {
     window.parent.postMessage({isStreamlitMessage: true, type, ...payload}, "*");
@@ -55,71 +100,227 @@
     });
   }
 
+  function readPreference(kind) {
+    try {
+      const values = JSON.parse(localStorage.getItem(`catcher-lab:${reportName}:${kind}`));
+      return new Set(Array.isArray(values) ? values : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  function savePreference(kind, values) {
+    try { localStorage.setItem(`catcher-lab:${reportName}:${kind}`, JSON.stringify([...values])); }
+    catch { /* Keep the current settings for this session. */ }
+  }
+
+  function visibleColumns() {
+    return headers.map((_, index) => index).filter(index => !hidden.has(headers[index]));
+  }
+
+  function format(value, index, summary = false) {
+    return (!summary && integerColumns.includes(headers[index]) ? whole : decimal).format(value);
+  }
+
+  function addHeading(body, title, columns) {
+    const cell = body.insertRow().insertCell();
+    cell.parentElement.className = "section";
+    cell.colSpan = columns.length + 2;
+    const badge = document.createElement("span");
+    badge.textContent = title;
+    cell.append(badge);
+  }
+
+  function addSummary(body, title, columns, values, roundedCounts = false) {
+    const row = body.insertRow();
+    row.insertCell();
+    row.insertCell();
+    for (const index of columns) {
+      const cell = row.insertCell();
+      cell.textContent = index === 0 ? title : Number.isFinite(values[index]) ? format(values[index], index, !roundedCounts) : "—";
+    }
+  }
+
+  function quantile(values, fraction) {
+    const ordered = [...values].sort((a, b) => a - b);
+    const position = (ordered.length - 1) * fraction;
+    const bottom = Math.floor(position);
+    return ordered[bottom] + (ordered[Math.ceil(position)] - ordered[bottom]) * (position - bottom);
+  }
+
+  function playerRow(body, row, rank, columns, group) {
+    const tr = body.insertRow();
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "pin";
+    pin.id = `pin-${group}-${row.id}`;
+    pin.textContent = pins.has(row.id) ? "★" : "☆";
+    pin.setAttribute("aria-label", `${pins.has(row.id) ? "Unpin" : "Pin"} ${row.values[0]}`);
+    pin.setAttribute("aria-pressed", String(pins.has(row.id)));
+    pin.addEventListener("click", () => {
+      if (pins.has(row.id)) pins.delete(row.id);
+      else pins.add(row.id);
+      savePreference("pins", pins);
+      render();
+      (document.getElementById(pin.id) || view).focus({preventScroll: true});
+    });
+    const pinCell = tr.insertCell();
+    pinCell.className = "pin-cell";
+    pinCell.append(pin);
+    const rankCell = tr.insertCell();
+    rankCell.className = "rank";
+    rankCell.textContent = rank;
+    for (const index of columns) {
+      const cell = tr.insertCell();
+      const value = row.values[index];
+      if (index === sort) cell.classList.add("sorted");
+      if (!index) {
+        const link = document.createElement("a");
+        link.href = row.profile;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = value;
+        link.addEventListener("click", event => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          choose(row, headers[index]);
+        });
+        cell.append(link);
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "metric";
+        button.textContent = format(value, index);
+        button.setAttribute("aria-label", `${row.values[0]}, ${headers[index]} ${button.textContent}. Review pitches`);
+        button.addEventListener("click", () => choose(row, headers[index]));
+        cell.append(button);
+      }
+    }
+  }
+
   function render() {
     head.replaceChildren();
-    body.replaceChildren();
+    benchmarks.replaceChildren();
+    pinnedBody.replaceChildren();
+    playerBody.replaceChildren();
+    const columns = visibleColumns();
     const header = head.insertRow();
-    headers.forEach((name, index) => {
+    for (const name of ["★", "#"]) {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = name;
+      cell.setAttribute("aria-label", name === "★" ? "Pinned" : "Rank");
+      header.append(cell);
+    }
+    for (const index of columns) {
       const cell = document.createElement("th");
       cell.scope = "col";
       if (index === sort) cell.setAttribute("aria-sort", ascending ? "ascending" : "descending");
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = name;
+      button.id = `sort-${index}`;
+      button.textContent = headers[index];
+      if (index === sort) {
+        const arrow = document.createElement("span");
+        arrow.setAttribute("aria-hidden", "true");
+        arrow.textContent = ascending ? " ↑" : " ↓";
+        button.append(arrow);
+      }
       button.addEventListener("click", () => {
         ascending = sort === index ? !ascending : index === 0;
         sort = index;
         render();
-        head.querySelectorAll("button")[index].focus();
+        document.getElementById(`sort-${index}`).focus({preventScroll: true});
       });
       cell.append(button);
       header.append(cell);
-    });
+    }
     const ordered = [...rows].sort((left, right) => {
       const a = left.values[sort];
       const b = right.values[sort];
       const comparison = sort === 0 ? a.localeCompare(b) : a - b;
-      return ascending ? comparison : -comparison;
+      return (ascending ? comparison : -comparison) || left.values[0].localeCompare(right.values[0]);
     });
-    for (const row of ordered) {
-      const tr = body.insertRow();
-      row.values.forEach((value, index) => {
-        const cell = tr.insertCell();
-        if (!index) {
-          const link = document.createElement("a");
-          link.href = row.profile;
-          link.target = "_blank";
-          link.rel = "noopener";
-          link.textContent = value;
-          link.addEventListener("click", event => {
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            choose(row, headers[index]);
-          });
-          cell.append(link);
-        } else {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = formats[integerColumns.includes(headers[index]) ? 1 : 2].format(value);
-          button.setAttribute("aria-label", `${row.values[0]}, ${headers[index]} ${button.textContent}. Review pitches`);
-          button.addEventListener("click", () => choose(row, headers[index]));
-          cell.append(button);
-        }
-      });
+    const ranks = new Map();
+    ordered.forEach((row, index) => {
+      const prior = ordered[index - 1];
+      ranks.set(row.id, prior && row.values[sort] === prior.values[sort] ? ranks.get(prior.id) : index + 1);
+    });
+    const pinned = ordered.filter(row => pins.has(row.id));
+    const ranked = ordered.filter(row => !pins.has(row.id));
+    status.textContent = `${whole.format(rows.length)} catchers · ${whole.format(pinned.length)} pinned`;
+    if (qualifiedStats || rows.length) {
+      addHeading(benchmarks, "Qualified Catcher Benchmarks", columns);
+      const mean = qualifiedStats?.mean ?? headers.map((_, index) => index ? rows.reduce((sum, row) => sum + row.values[index], 0) / rows.length : 0);
+      const percentile = qualifiedStats?.percentile ?? headers.map((_, index) => index ? quantile(rows.map(row => row.values[index]), .9) : 0);
+      addSummary(benchmarks, "Average", columns, mean);
+      addSummary(benchmarks, "90th Percentile", columns, percentile);
     }
-    empty.hidden = rows.length > 0;
+    if (pinned.length) {
+      addHeading(pinnedBody, "Pinned Comparison", columns);
+      for (const row of pinned) playerRow(pinnedBody, row, ranks.get(row.id), columns, "pinned");
+      const totals = headers.map((_, index) => index ? pinned.reduce((sum, row) => sum + row.values[index], 0) : 0);
+      const rateIndex = headers.indexOf("jcSL+");
+      if (rateIndex >= 0) {
+        const actual = pinned.reduce((sum, row) => sum + (row.strikeTotals?.[0] ?? 0), 0);
+        const expected = pinned.reduce((sum, row) => sum + (row.strikeTotals?.[1] ?? 0), 0);
+        totals[rateIndex] = expected ? actual / expected * 100 : NaN;
+      }
+      addSummary(pinnedBody, "Combined", columns, totals, true);
+    }
+    if (ranked.length && view.value === "all") {
+      addHeading(playerBody, "Catcher Rankings", columns);
+      for (const row of ranked) playerRow(playerBody, row, ranks.get(row.id), columns, "ranked");
+    }
+    empty.hidden = rows.length > 0 && (view.value === "all" || pinned.length > 0);
+    empty.textContent = rows.length ? "Pin catchers from All Catchers to compare them here." : "No catchers match these filters.";
   }
 
+  function renderOptions() {
+    options.replaceChildren();
+    headers.slice(1).forEach(name => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !hidden.has(name);
+      input.addEventListener("change", () => {
+        if (input.checked) hidden.delete(name);
+        else hidden.add(name);
+        if (hidden.has(headers[sort])) {
+          sort = visibleColumns()[1] ?? 0;
+          ascending = sort === 0;
+        }
+        savePreference("columns", hidden);
+        render();
+      });
+      label.append(input, " ", name);
+      options.append(label);
+    });
+  }
+
+  view.addEventListener("change", render);
   window.addEventListener("message", event => {
     if (event.source !== window.parent || event.data?.type !== "streamlit:render") return;
     const args = event.data.args;
     rows = args.rows;
+    qualifiedStats = args.benchmarks;
     headers = args.headers;
     integerColumns = args.integer_columns || [headers[1]];
-    table.setAttribute("aria-label", args.table_label || "Receiving Leaderboard");
+    const nextName = args.table_label || "Receiving Leaderboard";
+    if (nextName !== reportName) {
+      reportName = nextName;
+      pins = readPreference("pins");
+      hidden = readPreference("columns");
+      if (hidden.has(headers[sort])) {
+        sort = visibleColumns()[1] ?? 0;
+        ascending = sort === 0;
+      }
+      renderOptions();
+    }
+    table.setAttribute("aria-label", reportName);
     render();
   });
-  new ResizeObserver(() => notify("streamlit:setFrameHeight", {height: grid.offsetHeight})).observe(grid);
+  new ResizeObserver(() => notify("streamlit:setFrameHeight", {height: report.offsetHeight})).observe(report);
   notify("streamlit:componentReady", {apiVersion: 1});
 </script>
 </html>
